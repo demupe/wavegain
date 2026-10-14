@@ -1,4 +1,3 @@
-/* SPDX-License-Identifier: LGPL-2.0-or-later */
 /* WaveGain - Filename: AUDIO.H
  *
  *   Copyright (c) 2002 - 2005 John Edwards <john.edwards33@ntlworld.com>

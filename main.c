@@ -1,4 +1,3 @@
-/* License provenance: see doc/license-notices.txt; original notices retained. */
 /*
  * function: ReplayGain support for Wave files (http://www.replaygain.org)
  *

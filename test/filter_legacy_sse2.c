@@ -1,4 +1,3 @@
-/* SPDX-License-Identifier: LGPL-2.1-or-later */
 /* Validate the historical Windows/SSE2 layout independently of new SIMD. */
 #include <assert.h>
 #include <float.h>

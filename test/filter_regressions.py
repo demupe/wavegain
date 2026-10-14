@@ -1,4 +1,3 @@
-# SPDX-License-Identifier: LGPL-2.1-or-later
 """Compile scalar/SIMD private-state probes and compare all output bytes."""
 import argparse
 import hashlib

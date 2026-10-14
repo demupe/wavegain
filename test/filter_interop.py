@@ -1,4 +1,3 @@
-# SPDX-License-Identifier: LGPL-2.1-or-later
 """Independent 88.2 kHz sanity checks with FFmpeg, including conversion/undo."""
 import argparse
 import json

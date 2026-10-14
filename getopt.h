@@ -1,4 +1,3 @@
-/* SPDX-License-Identifier: LGPL-2.0-or-later */
 /* Declarations for getopt.
    Copyright (C) 1989,90,91,92,93,94,96,97,98 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
@@ -14,7 +13,7 @@
    Library General Public License for more details.
 
    You should have received a copy of the GNU Library General Public
-   License along with the GNU C Library; see LICENSES/LGPL-2.0-only.txt.  If not,
+   License along with the GNU C Library; see the file COPYING.LIB.  If not,
    write to the Free Software Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.  */
 

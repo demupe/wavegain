@@ -45,16 +45,8 @@ manual's prose is retained in an explicitly historical legacy-notes.txt.
 
 License header cleanup
 ----------------------
-Explicit original grants now have matching SPDX comments and original authors
-remain credited. The referenced GNU Library GPL v2 text is included under
-LICENSES and missing filename references are repaired. Known new sources use
-LGPL-2.1-or-later. The Debian GPL-3 wording typo is fixed.
-
-The four original "GPL version 2.1" grants and headers without an original
-file-specific grant remain unresolved. Their provenance comments point to
-doc/license-notices.txt; no unsupported SPDX interpretation was assigned.
-Standardizing those grants still needs an original release statement or
-clarification from the rights holders. This is the remaining TODO limitation.
+Not part of this change. Source license notices are left as released; the
+analysis in doc/todo-investigation.txt is kept for a separate review.
 
 Validation
 ----------

@@ -1,4 +1,3 @@
-# SPDX-License-Identifier: LGPL-2.1-or-later
 """Historical loop-prototype probe; production SIMD checks are in test/filter_regressions.py."""
 import argparse
 import array

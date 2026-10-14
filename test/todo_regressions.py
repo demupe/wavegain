@@ -1,4 +1,3 @@
-# SPDX-License-Identifier: LGPL-2.1-or-later
 """Behavioral regressions for DC clipping, album peaks, progress and shared help."""
 import json
 import math

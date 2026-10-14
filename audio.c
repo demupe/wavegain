@@ -1,4 +1,3 @@
-/* SPDX-License-Identifier: LGPL-2.0-or-later */
 /* WaveGain - Filename: AUDIO.C
  *
  * Function: Essentially provides all the wave input and output routines.

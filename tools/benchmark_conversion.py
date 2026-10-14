@@ -1,4 +1,3 @@
-# SPDX-License-Identifier: LGPL-2.1-or-later
 """Benchmark isolated conversion experiments; production sources are not edited.
 
 Builds temporary source copies, generates stereo 96 kHz PCM and compares both

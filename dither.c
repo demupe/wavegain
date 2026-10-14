@@ -1,6 +1,5 @@
-/* SPDX-License-Identifier: LGPL-2.0-only */
 /* This program is licensed under the GNU Library General Public License, version 2,
- * a copy of which is included with this program (see LICENSES/LGPL-2.0-only.txt).
+ * a copy of which is included with this program (with filename LICENSE.LGPL).
  *
  * (c) 2002 John Edwards
  * mostly lifted from work by Frank Klemm

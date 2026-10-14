@@ -1,4 +1,3 @@
-/* License provenance: see doc/license-notices.txt; original notices retained. */
 #ifndef _CONFIG_H_
 #define _CONFIG_H_
 

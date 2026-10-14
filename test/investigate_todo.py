@@ -1,4 +1,3 @@
-# SPDX-License-Identifier: LGPL-2.1-or-later
 """Generate evidence for the remaining TODOs without changing real audio files.
 
 Run after building: python3 test/investigate_todo.py --output /tmp/todo.json

@@ -1,4 +1,3 @@
-/* SPDX-License-Identifier: LGPL-2.1-or-later */
 /* Private-state checks are intentional: rounded gain alone can hide IIR drift. */
 #include <assert.h>
 #include <stdint.h>

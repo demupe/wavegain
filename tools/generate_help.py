@@ -1,4 +1,3 @@
-# SPDX-License-Identifier: LGPL-2.1-or-later
 """Generate checked-in CLI help and manuals from doc/help.json."""
 import argparse
 import html

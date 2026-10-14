@@ -1,4 +1,3 @@
-/* License provenance: see doc/license-notices.txt; original notices retained. */
 #ifndef WAVEGAIN_H
 #define WAVEGAIN_H
 

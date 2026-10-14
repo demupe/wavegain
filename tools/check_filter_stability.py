@@ -1,4 +1,3 @@
-# SPDX-License-Identifier: LGPL-2.1-or-later
 """Check all IIR denominators using Schur recursion (no third-party modules)."""
 import argparse
 import json

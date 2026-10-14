@@ -1,4 +1,3 @@
-/* SPDX-License-Identifier: LGPL-2.1-or-later */
 #include <assert.h>
 #include "../audio.c"
 #include "../w64.c"

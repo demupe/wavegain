@@ -1,4 +1,3 @@
-/* SPDX-License-Identifier: LGPL-2.1-or-later */
 /* Regression tests for LP64 PCM corruption and offsets beyond 2 GiB.
  * Including audio.c also exercises its private chunk-decoding helpers. */
 #include <assert.h>

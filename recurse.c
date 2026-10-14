@@ -1,4 +1,3 @@
-/* License provenance: see doc/license-notices.txt; original notices retained. */
 /*
  * Process files recursively, using an optional pattern
  *
