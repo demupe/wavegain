@@ -133,7 +133,9 @@ struct option
    errors, only prototype getopt for the GNU C library.  */
 extern int getopt (int __argc, char *const *__argv, const char *__shortopts);
 # else /* not __GNU_LIBRARY__ */
-extern int getopt ();
+/* C23 reads an empty parameter list as (void), so declare the
+   arguments here as well.  */
+extern int getopt (int __argc, char *const *__argv, const char *__shortopts);
 # endif /* __GNU_LIBRARY__ */
 
 # ifndef __need_getopt
