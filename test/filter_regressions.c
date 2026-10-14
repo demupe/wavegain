@@ -192,6 +192,13 @@ static void errors(void)
 
 int main(void)
 {
+#ifdef FILTER_EXPECT_SIMD
+# ifdef WAVEGAIN_HAVE_FILTER_PAIR
+    _Static_assert(FILTER_EXPECT_SIMD == 1, "Expected scalar backend");
+# else
+    _Static_assert(FILTER_EXPECT_SIMD == 0, "Expected paired SIMD backend");
+# endif
+#endif
     kernels(); api();
 #ifndef FILTER_COMPATIBILITY_TEST
     errors();

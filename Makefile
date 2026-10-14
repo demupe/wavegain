@@ -1,5 +1,7 @@
 SHELL    = /bin/sh
+ifneq ($(filter default undefined,$(origin CC)),)
 CC       = gcc
+endif
 
 TARGET   = wavegain
 CPPFLAGS += -D_FILE_OFFSET_BITS=64
@@ -30,6 +32,14 @@ debug: clean $(TARGET)
 release: CFLAGS += -s -O2 -D_FORTIFY_SOURCE=2
 release: clean $(TARGET)
 
+# Serialize clean/build even under -j, then verify before callers install.
+verified-release: override CFLAGS += -s -O2 -D_FORTIFY_SOURCE=2
+verified-release: override CPPFLAGS += -D_FILE_OFFSET_BITS=64
+verified-release:
+	$(MAKE) clean
+	$(MAKE) $(TARGET) CC="$(CC)" CPPFLAGS="$(CPPFLAGS)" CFLAGS="$(CFLAGS)" DEFS="$(DEFS)" LDFLAGS="$(LDFLAGS)"
+	python3 test/filter_regressions.py --cc "$(CC)" --cflags="$(CPPFLAGS) $(CFLAGS) $(DEFS)" --ldflags="$(LDFLAGS) $(LIBS)" --expect-simd 1 --cli "./$(TARGET)" || { $(RM) "$(TARGET)"; exit 1; }
+
 # ASAN (Address Sanitizer) build.
 # Find some run-time errors that debug build misses.
 # -U_FORTIFY_SOURCE: Disable FORTIFY_SOURCE, supposedly does not play well with ASAN
@@ -40,7 +50,7 @@ asan: CFLAGS += -g3 -O2 -U_FORTIFY_SOURCE -fsanitize=address -fno-omit-frame-poi
 asan: clean $(TARGET)
 
 $(TARGET): $(SOURCES) $(HEADERS) help_generated.h
-	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEFS) -o $(TARGET) $(SOURCES) $(LIBS)
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEFS) $(LDFLAGS) -o $(TARGET) $(SOURCES) $(LIBS)
 
 install: $(TARGET)
 	install -s -D $(TARGET) $(DESTDIR)$(bindir)/$(TARGET)
@@ -49,9 +59,9 @@ uninstall:
 	rm -f $(DESTDIR)$(bindir)/$(TARGET)
 
 check: $(TARGET) check-docs check-filters
-	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEFS) -UNDEBUG -o test/portability test/portability.c w64.c $(LIBS)
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEFS) $(LDFLAGS) -UNDEBUG -o test/portability test/portability.c w64.c $(LIBS)
 	./test/portability
-	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEFS) -UNDEBUG -o test/wave64 test/wave64.c $(LIBS)
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEFS) $(LDFLAGS) -UNDEBUG -o test/wave64 test/wave64.c $(LIBS)
 	./test/wave64
 	$(RM) test/portability test/wave64
 	python3 test/todo_regressions.py
@@ -74,4 +84,4 @@ clean:
 
 distclean: clean
 
-.PHONY : all debug release asan install uninstall clean distclean check check-interop check-filters docs check-docs
+.PHONY : all debug release verified-release asan install uninstall clean distclean check check-interop check-filters docs check-docs

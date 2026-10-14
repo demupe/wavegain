@@ -356,19 +356,28 @@ filterButter(const Float_t* input, Float_t* output, size_t nSamples, const Float
 /* Independent stereo lanes preserve each scalar expression's operation order.
  * The loop-based prototype split the initial bias/multiply expression, changing
  * Clang's FMA contraction. Keep this unrolled expression identical to scalar.
- * Enable only validated Clang targets; other builds retain scalar/legacy SSE2.
+ * Enable supported compiler/ISA combinations, including GCC 14 AVX-512 builds.
+ * Use verified-release to check bitwise equality with the exact build flags.
+ * GCC on AArch64 has different scalar/vector contraction and remains scalar.
  * Define WAVEGAIN_FILTER_SIMD=0 to force the scalar reference path. */
+#if (defined(__clang__) && \
+     (defined(__aarch64__) || (defined(__x86_64__) && defined(__SSE2__)))) || \
+    (!defined(__clang__) && defined(__GNUC__) && __GNUC__ == 14 && \
+     defined(__x86_64__) && defined(__SSE2__))
+# define WAVEGAIN_FILTER_PAIR_SUPPORTED 1
+#endif
 #ifndef WAVEGAIN_FILTER_SIMD
-# if defined(__clang__) && !defined(__FAST_MATH__) && !defined(HAVE_SSE2) && \
-     (defined(__aarch64__) || (defined(__x86_64__) && defined(__SSE2__)))
+# if defined(WAVEGAIN_FILTER_PAIR_SUPPORTED) && \
+     !defined(__FAST_MATH__) && !defined(HAVE_SSE2) && \
+     (defined(__clang__) || \
+      (defined(__AVX2__) && defined(__FMA__)))
 #  define WAVEGAIN_FILTER_SIMD 1
 # else
 #  define WAVEGAIN_FILTER_SIMD 0
 # endif
 #endif
 #if WAVEGAIN_FILTER_SIMD && !defined(HAVE_SSE2) && \
-    defined(__clang__) && \
-    (defined(__aarch64__) || (defined(__x86_64__) && defined(__SSE2__)))
+    !defined(__FAST_MATH__) && defined(WAVEGAIN_FILTER_PAIR_SUPPORTED)
 #define WAVEGAIN_HAVE_FILTER_PAIR 1
 typedef double filter_pair __attribute__((vector_size(16)));
 #define PAIR_AT(left, right, offset) \
