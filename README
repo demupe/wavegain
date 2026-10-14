@@ -95,6 +95,11 @@ Wave64 examples:
 
 Wave64 supports the same mono/stereo PCM and sample rates as WAV. Unknown
 chunks before and after audio are preserved with bounded-memory copying.
+'fact' and gain chunks are rewritten before the audio, and 'levl' peak
+summaries (stale after a gain change) are dropped, wherever they appear.
+On seekable input, container or data sizes that were never finalized (for
+example a file written to a pipe) or that exceed a truncated file are
+accepted with a warning, like the WAV reader; stdin input stays strict.
 The WaveGain gain extension uses a private GUID
 (e217d848-96be-4ac0-b56a-8b46289c71e0), containing a little-endian IEEE double.
 Files must contain a format chunk before a single audio data chunk; compressed
@@ -102,9 +107,39 @@ codecs and RF64 remain unsupported. -b 6 explicitly selects AIFF output and
 retains that format's 32-bit size limit. No WAV-to-Wave64 conversion option is
 provided; use an external converter to create the initial .w64 file.
 
+WAV output that would exceed the 4 GiB RIFF limit (for example a large 16-bit
+file converted with -b 4) is rejected before processing, and the original
+file is kept unchanged.
+
 `make check` includes sparse 5 GiB Wave64 input/output, padding, metadata,
 PCM/float, extensible format, gain and malformed-size regressions. Optional
 FFmpeg interoperability checks can be run with `make check-interop`.
+
+`make verified-release` builds a release binary and compares the ReplayGain
+filter state and complete conversion output against a scalar build made with
+the same compiler and flags, deleting the binary on any mismatch.
+VERIFY_SIMD=auto (default) accepts either filter backend, VERIFY_SIMD=1
+requires the paired stereo SIMD backend and VERIFY_SIMD=0 requires scalar.
+
+
+Behavior changes
+-------------------------------------------------------------------------------
+Results can differ from earlier releases for the same input:
+
+* Clipping prevention and the reported Peak use the peak AFTER the selected
+  DC offset correction (track or album), instead of the uncorrected peak.
+* DC offset correction is applied when the offset of either channel exceeds
+  1/32768 of full scale. Earlier releases required at least 2/32768.
+* With -t (--limiter) every file is rewritten, even when no gain change or
+  DC correction would otherwise be needed.
+* 88.2 kHz files use new filter coefficients (the former ones were unstable),
+  so their gain values change. Other sample rates are unaffected, except in
+  MSVC builds using the legacy SSE2 filter (HAVE_SSE2): it previously ignored
+  the last Yule coefficient, so those builds change at every rate.
+* The ReplayGain filters are evaluated without fused multiply-add. On
+  FMA-capable targets the last bits of the filter state can differ from
+  builds that let the compiler fuse operations; gain values then match
+  across compilers and architectures.
 
 Pre-compiled binaries and old versions
 -------------------------------------------------------------------------------
