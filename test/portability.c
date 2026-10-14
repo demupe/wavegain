@@ -234,22 +234,59 @@ static void check_rf64_input(void)
     fclose(in);
 }
 
+/* An RF64 dataSize beyond INT64_MAX must not overflow the signed offsets:
+ * a 180-byte file claiming INT64_MAX bytes is read to the end of the file. */
+static void check_rf64_huge_size(void)
+{
+    unsigned char head[12], ds64[36] = {0}, fmt[44], audio[100] = {0};
+    wavegain_opt opt = {0};
+    FILE *in = tmpfile();
+    assert(in);
+    memcpy(head, "RF64", 4);
+    WRITE_U32(head + 4, 0xffffffff);
+    memcpy(head + 8, "WAVE", 4);
+    memcpy(ds64, "ds64", 4);
+    WRITE_U32(ds64 + 4, 28);
+    WRITE_U32(ds64 + 16, 0xffffffff); /* dataSize64 = INT64_MAX */
+    WRITE_U32(ds64 + 20, 0x7fffffff);
+    wav_header(fmt, 0, 0xffffffff);
+    assert(fwrite(head, 1, 12, in) == 12 && fwrite(ds64, 1, 36, in) == 36);
+    assert(fwrite(fmt + 12, 1, 32, in) == 32 && fwrite(audio, 1, 100, in) == 100);
+    rewind(in);
+    opt.apply_gain = 1;
+    assert(open_audio_file(in, &opt));
+    assert(opt.total_samples_per_channel == 25);
+    assert(current_pos_t == 180);
+    wav_close(opt.readdata);
+    free(opt.header);
+    fclose(in);
+}
+
 /* WAV output over 4 GiB is written, not rejected: by default with 0xFFFFFFFF
  * sizes (as earlier releases did), and as RF64 with --rf64. Both read back. */
-static void check_large_output(int rf64)
+/* junk: payload size of a JUNK chunk already present after "WAVE" (0 = none).
+ * Only a 28-byte one can be turned into ds64 in place; others must survive. */
+static void check_large_output(int rf64, unsigned int junk)
 {
     const Uint64_t bytes = 4608ULL * 1024 * 1024; /* 4.5 GiB of 16-bit stereo */
-    unsigned char header[80];
+    const Int64_t source_header = 44 + (junk ? 8 + (Int64_t)junk : 0);
+    unsigned char header[200];
     char name[] = "test/large_out_XXXXXX";
     wavegain_opt *opt = calloc(1, sizeof(*opt)), back = {0};
     audio_file *out;
     FILE *in = tmpfile(), *file;
     Int64_t data_offset, length;
     assert(opt && in);
-    opt->header = malloc(44);
+    opt->header = calloc(1, (size_t)source_header);
     assert(opt->header);
-    wav_header(opt->header, 36, 0);
-    opt->header_size = 44;
+    wav_header(header, 36, 0);
+    memcpy(opt->header, header, 12);
+    if (junk) {
+        memcpy(opt->header + 12, "JUNK", 4);
+        WRITE_U32(opt->header + 16, junk);
+    }
+    memcpy(opt->header + source_header - 32, header + 12, 32);
+    opt->header_size = (int)source_header;
     opt->channels = 2;
     opt->samplesize = 16;
     opt->rate = 44100;
@@ -258,8 +295,9 @@ static void check_large_output(int rf64)
     opt->rf64 = rf64;
     out = open_output_audio_file(name, opt);
     assert(out);
-    data_offset = opt->header_size; /* 80 with the reserved JUNK chunk */
-    assert(data_offset == (rf64 ? 80 : 44));
+    data_offset = opt->header_size;
+    /* A new 36-byte placeholder is inserted unless a 28-byte JUNK is reused. */
+    assert(data_offset == source_header + (rf64 && junk != 28 ? 36 : 0));
     assert(FSEEK64(out->sndfile, data_offset + (Int64_t)bytes - 1, SEEK_SET) == 0);
     assert(fputc(0, out->sndfile) != EOF);
     out->samples = bytes / 2;
@@ -282,6 +320,8 @@ static void check_large_output(int rf64)
         assert(read_u64(header + 20) == (Uint64_t)length - 8);
         assert(read_u64(header + 28) == bytes);
         assert(read_u64(header + 36) == bytes / 4);
+        if (junk && junk != 28) /* the original JUNK chunk follows intact */
+            assert(!memcmp(header + 48, "JUNK", 4) && READ_U32_LE(header + 52) == junk);
     } else {
         assert(!memcmp(header, "RIFF", 4));
     }
@@ -303,8 +343,11 @@ int main(void)
     check_large_wav();
     check_piped_input();
     check_rf64_input();
-    check_large_output(0);
-    check_large_output(1);
+    check_rf64_huge_size();
+    check_large_output(0, 0);
+    check_large_output(1, 0);
+    check_large_output(1, 28);  /* reused in place */
+    check_large_output(1, 64);  /* kept; a new placeholder goes in front */
     puts("PCM, IEEE float, reusable buffers/error handling, gain, sparse 3 GiB WAV, piped/RF64 input and sparse 4.5 GiB oversized/RF64 output tests passed");
     return 0;
 }
