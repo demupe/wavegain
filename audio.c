@@ -813,14 +813,11 @@ long wav_read(void *in, double **buffer, int samples, int fast, Int64_t chunk)
 	long realsamples;
 
 	if (fast) {
-		if (!f->bounded) chunk -= f->data_start;
-		chunk /= (sampbyte * f->channels);
-		chunk *= (sampbyte * f->channels);
-		if (!f->bounded) chunk += f->data_start;
-		if (f->bounded) chunk += f->data_start;
-		f->samplesread = chunk >= f->data_start ?
-		    (chunk - f->data_start) / (f->samplesize / 8 * f->channels) : 0;
-		if (FSEEK64(f->f, chunk, SEEK_SET)) return -1;
+		/* chunk is a byte offset relative to the start of the audio data. */
+		f->samplesread = chunk / (sampbyte * f->channels);
+		if (FSEEK64(f->f, f->data_start +
+		            (Int64_t)f->samplesread * sampbyte * f->channels, SEEK_SET))
+			return -1;
 	}
 
 	if (f->bounded) {
@@ -923,14 +920,11 @@ long wav_ieee_read(void *in, double **buffer, int samples, int fast, Int64_t chu
 	long realsamples;
 
 	if (fast) {
-		if (!f->bounded) chunk -= f->data_start;
-		chunk /= (4 * f->channels);
-		chunk *= (4 * f->channels);
-		if (!f->bounded) chunk += f->data_start;
-		if (f->bounded) chunk += f->data_start;
-		f->samplesread = chunk >= f->data_start ?
-		    (chunk - f->data_start) / (f->samplesize / 8 * f->channels) : 0;
-		if (FSEEK64(f->f, chunk, SEEK_SET)) return -1;
+		/* chunk is a byte offset relative to the start of the audio data. */
+		f->samplesread = chunk / (4 * f->channels);
+		if (FSEEK64(f->f, f->data_start +
+		            (Int64_t)f->samplesread * 4 * f->channels, SEEK_SET))
+			return -1;
 	}
 
 	if (f->bounded) {

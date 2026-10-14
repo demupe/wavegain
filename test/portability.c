@@ -53,7 +53,8 @@ static void check_large_wav(void)
 {
     /* A sparse 3 GiB WAV requires only a few disk blocks. */
     const Int64_t data_size = 3LL * 1024 * 1024 * 1024;
-    const Int64_t sample_offset = 44 + data_size - 4;
+    /* Fast reads take byte offsets relative to the start of the audio data. */
+    const Int64_t sample_offset = data_size - 4;
     unsigned char header[44] = {0};
     const unsigned char sample[] = {0, 64, 0, 192};
     wavegain_opt opt = {0};
@@ -74,7 +75,7 @@ static void check_large_wav(void)
     memcpy(header + 36, "data", 4);
     WRITE_U32(header + 40, data_size);
     assert(fwrite(header, 1, sizeof(header), in) == sizeof(header));
-    assert(FSEEK64(in, sample_offset, SEEK_SET) == 0);
+    assert(FSEEK64(in, 44 + sample_offset, SEEK_SET) == 0);
     assert(fwrite(sample, 1, sizeof(sample), in) == sizeof(sample));
     assert(FTELL64(in) == 44 + data_size);
     rewind(in);

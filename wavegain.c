@@ -217,7 +217,6 @@ int get_gain(const char *filename, double *track_peak, double *track_gain,
     }
     while (!sampled || iteration < 200) {
         Int64_t position = sampled ? step * (100 + iteration * 5) : 0;
-        if (sampled && !opt.is_wave64) position += ((wavfile *)opt.readdata)->data_start;
         count = opt.read_samples(opt.readdata, buffer, BUFFER_LEN, sampled, position);
         if (count < 0) { fprintf(stderr, " Error reading %s.\n", filename); goto done; }
         if (!count) break;
