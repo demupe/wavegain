@@ -2,7 +2,7 @@
 #define MAIN_H
 
 /* Some version numbers */
-#define WAVEGAIN_VERSION "1.4.0"
+#define WAVEGAIN_VERSION "1.4.1"
 
 #define BUFFER_LEN  16384
 #define LOG_NAME "WGLog.txt"
