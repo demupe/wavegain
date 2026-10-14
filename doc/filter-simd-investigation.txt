@@ -81,10 +81,15 @@ filtering paths. Fast-math always disables the paired implementation,
 including explicit opt-in.
 
 Because filter contraction is now disabled, builds for FMA-capable targets
-(for example AArch64, or x86_64 with -march=x86-64-v3) can differ in the last
-bits of the filter state from earlier builds of this branch that let the
-compiler fuse operations. Results become identical across compilers and ISAs
-for the filters themselves.
+(for example AArch64, or x86_64 with -march=x86-64-v3) differ in the last bits
+of the filter state from earlier builds that let the compiler fuse operations.
+At any sample rate this can move a gain that lies close to a 0.01 dB histogram
+step by one step (observed: -0.44 dB -> -0.45 dB at 48 kHz). This is an
+intended change. Targets that cannot use FMA (for example the default x86_64
+-O2) are unaffected. The guarantee is bitwise scalar/SIMD equality within one
+build; equality across compilers or ISAs is only established for the tested
+configurations, because RMS accumulation and log10 keep the compiler's normal
+floating-point policy.
 
 make verified-release compares all-rate kernel/API state plus complete CLI
 output against a scalar build using the same release/compiler/linker flags.
@@ -109,8 +114,11 @@ double amplitudes and tiny level offsets. Invalid samples/energy overflow are
 rejected under address, undefined-behavior and float-cast-overflow sanitizers.
 
 Clang 21 arm64 and x86_64 default SIMD match their corrected scalar references
-byte-for-byte. The eleven unaffected rates also match prior 3fe2589 internal
-state/histograms/gains. GNU GCC 16 fallback matches its prior scalar results.
+byte-for-byte. The eleven unaffected rates also matched prior 3fe2589 internal
+state/histograms/gains before filter contraction was disabled. Since then, a
+prior-revision comparison is expected to match only on targets that cannot use
+FMA (verified: Clang -O2 -arch x86_64 and GCC 14 x86_64 -O2 against 219825c);
+on FMA-capable targets such as arm64 it reports the intended difference.
 Additional Clang -O3 and -ffp-contract=off probes pass. Historical loop-prototype
 results are kept as separate evidence; they are not the production validation.
 
@@ -148,11 +156,12 @@ Reproduction and evidence
 make check
 make check-interop                         # requires FFmpeg / ffprobe
 python3 tools/check_filter_stability.py --output /tmp/filter-stability.json
-python3 test/filter_regressions.py --reference-ref 3fe2589 \
-    --output /tmp/filter-equivalence.json
+python3 test/filter_regressions.py --output /tmp/filter-equivalence.json
+# Prior-revision compatibility: compare on a target without FMA. On FMA-capable
+# targets (arm64, -march=x86-64-v3) the intended filter rounding change fails it.
 python3 test/filter_regressions.py --cflags='-O2 -arch x86_64' \
     --reference-ref 3fe2589 --output /tmp/filter-equivalence-x86.json
-python3 test/filter_regressions.py --cc gcc-16 --reference-ref 3fe2589
+python3 test/filter_regressions.py --cc gcc-16
 python3 test/filter_regressions.py \
     --cflags='-O2 -fsanitize=address,undefined,float-cast-overflow -fno-sanitize-recover=all'
 python3 tools/benchmark_conversion.py --ref 3fe2589 --seconds 60 --repeats 5 \

@@ -133,13 +133,19 @@ Results can differ from earlier releases for the same input:
 * With -t (--limiter) every file is rewritten, even when no gain change or
   DC correction would otherwise be needed.
 * 88.2 kHz files use new filter coefficients (the former ones were unstable),
-  so their gain values change. Other sample rates are unaffected, except in
-  MSVC builds using the legacy SSE2 filter (HAVE_SSE2): it previously ignored
-  the last Yule coefficient, so those builds change at every rate.
-* The ReplayGain filters are evaluated without fused multiply-add. On
-  FMA-capable targets the last bits of the filter state can differ from
-  builds that let the compiler fuse operations; gain values then match
-  across compilers and architectures.
+  so their gain values change. Other rates can also change on FMA-capable
+  builds (next item). MSVC builds using the legacy SSE2 filter (HAVE_SSE2)
+  previously ignored the last Yule coefficient, so they change at every rate.
+* The ReplayGain filters are evaluated without fused multiply-add (FMA). On
+  FMA-capable builds (AArch64, or x86_64 with -march=x86-64-v3 or later) the
+  filter rounding differs from earlier builds that let the compiler fuse
+  operations, so at any sample rate a reported gain close to a 0.01 dB
+  histogram step can move by one step (e.g. -0.44 dB -> -0.45 dB at 48 kHz).
+  Builds that cannot use FMA (e.g. the default x86_64 -O2) give the same
+  results as before. Within one build the scalar and SIMD filters match
+  bit-for-bit; gain values matched across the compilers and targets tested
+  for this change, but RMS accumulation and log10 are outside this rule, so
+  identical gains across all compilers and architectures are not guaranteed.
 
 Pre-compiled binaries and old versions
 -------------------------------------------------------------------------------

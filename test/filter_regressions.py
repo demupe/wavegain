@@ -60,7 +60,8 @@ def main():
                         help='Select the paired path in the default build')
     parser.add_argument('--expect-simd', choices=('0','1'),
                         help='Fail if the default build selects a different backend')
-    parser.add_argument('--reference-ref', help='Compare the eleven unaffected rates against a prior Git revision')
+    parser.add_argument('--reference-ref', help='Compare the eleven unaffected rates against a prior Git revision '
+                        '(expected to match only on targets without FMA; filters no longer fuse multiply-add)')
     args = parser.parse_args()
     report = {'compiler': subprocess.check_output([*shlex.split(args.cc),'--version'],text=True).splitlines()[0],
               'flags': args.cflags, 'ldflags': args.ldflags, 'simd': args.simd, 'runs': {}}
@@ -113,7 +114,10 @@ def main():
             report['reference_ref'] = args.reference_ref
             report['unaffected_rates_sha256'] = reports
             report['unaffected_rates_equal'] = reports['prior'] == reports['current']
-            if not report['unaffected_rates_equal']: raise AssertionError('Previously supported rates changed')
+            if not report['unaffected_rates_equal']:
+                raise AssertionError('Previously supported rates changed. The filters are now evaluated without '
+                                     'FMA, so a difference is expected on FMA-capable targets (arm64, '
+                                     '-march=x86-64-v3); compare compatibility on a target without FMA')
             print('Eleven unaffected rates match the prior revision byte-for-byte.')
         if args.cli:
             report['cli_cases'] = check_cli(args, folder)
