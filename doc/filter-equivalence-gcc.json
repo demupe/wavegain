@@ -1,0 +1,23 @@
+{
+  "compiler": "gcc-16 (Homebrew GCC 16.2.0) 16.2.0",
+  "flags": "-O2",
+  "runs": {
+    "scalar": {
+      "sha256": "d655e873676a54904ce1d886dc09e40ed4a79128b106deaa73e9a1467eeb566d",
+      "bytes": 37374744,
+      "diagnostic": "Filters: 12 rates, kernel bits, mono/stereo API state/histograms, chunks, album resets and non-finite guards passed (SIMD=0).\n"
+    },
+    "default": {
+      "sha256": "d655e873676a54904ce1d886dc09e40ed4a79128b106deaa73e9a1467eeb566d",
+      "bytes": 37374744,
+      "diagnostic": "Filters: 12 rates, kernel bits, mono/stereo API state/histograms, chunks, album resets and non-finite guards passed (SIMD=0).\n"
+    }
+  },
+  "bitwise_equal": true,
+  "reference_ref": "3fe2589",
+  "unaffected_rates_sha256": {
+    "prior": "d4fad142d63ccc8d600cd49c8597d824dbf459391cb06ae7fc95f101a11dcc47",
+    "current": "d4fad142d63ccc8d600cd49c8597d824dbf459391cb06ae7fc95f101a11dcc47"
+  },
+  "unaffected_rates_equal": true
+}

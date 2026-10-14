@@ -1,0 +1,154 @@
+ReplayGain filter investigation and SIMD implementation
+Date: 2026-10-14 (Asia/Tokyo)
+Baseline: 3fe2589 (historical filter investigation used 74e50db)
+Host: macOS arm64; x86_64 validation ran under Rosetta.
+
+88.2 kHz root cause
+------------------
+Both existing IIR denominators are mathematically unstable, independently of
+SIMD, compiler contraction and input PCM width. The stored Yule denominator has
+a real pole at approximately 1.4259220682, and the Butterworth denominator has
+one at 1.0669839896. A pole magnitude greater than one makes a bounded impulse
+response grow exponentially. For both polynomials P(1) is negative while the
+leading coefficient is positive, proving at least one real pole above one.
+Bisection locates the poles; Schur recursion also rejects both denominators.
+
+The earliest available imported version containing these coefficients is
+1.3.0 (bff3cf0); imported 1.3.1 has the same values. The existing 88.2 kHz last
+Yule denominator term and last Butterworth denominator term repeat values from
+the 64 kHz row. That suggests a copying error, but the original coefficient
+creation process is not in the available history. Changing one guessed term
+would not establish the intended frequency response.
+
+Only the 88.2 kHz Yule and Butterworth rows were replaced with the published
+FFmpeg coefficients, including the legacy SSE2 layout. The independent source
+is FFmpeg libavfilter/af_replaygain.c, freqinfos[88200], read on 2026-10-14:
+https://github.com/FFmpeg/FFmpeg/blob/master/libavfilter/af_replaygain.c
+The numerator and denominator now form a documented, stable weighting filter.
+All twelve rates pass Schur stability checks. Scalar and legacy table layouts
+are checked for matching coefficients. Native filtering arithmetic, window
+sizes, calibration constants and all other coefficient rows are retained.
+
+Non-finite RMS levels now return GAIN_ANALYSIS_ERROR before integer conversion;
+finite histogram levels are clamped before casting too. Previously a NaN from
+the divergent filter reached an undefined floating-to-integer cast. This guard
+reports an analysis failure; it does not turn non-finite samples into silence.
+Callers must reset or stop after an analysis error, as the CLI already does.
+
+Legacy SSE2 defect
+------------------
+The historical HAVE_SSE2 Yule kernel combines pairs of feedforward terms b0..b9
+then adds input[-10] * kernel[11]. In its packed coefficient layout kernel[10]
+is b10 and kernel[11] is padding zero, so the last feedforward tap was omitted.
+The tap is corrected to kernel[10]. The separate legacy SSE2 arithmetic and RMS
+summation remain as before. This branch is used by the existing Windows project;
+it is separate from the new paired-channel SIMD implementation.
+
+A dedicated x86_64 Clang probe compiled with HAVE_SSE2 and -fdeclspec reproduces
+the old defect, then passes after correction. All twelve impulse/DC/tone
+responses agree with an independent long-double recurrence within 1e-8; the
+observed maximum Yule error is about 9.9e-12. Non-finite API input guards are also
+checked. A full legacy-SSE2 CLI passes the independent 88.2 kHz conversion and
+FFmpeg checks. This exercises the legacy code under macOS, not Windows/MSVC.
+
+SIMD numerical policy
+---------------------
+Two binary64 vector lanes contain independent left/right samples. Time samples
+are not split into independent lanes: each channel keeps the existing causal
+IIR history. The two unrolled filter expressions keep the scalar operator order,
+initial 1e-10 bias, coefficient selection and per-operation binary64 precision.
+RMS accumulation, histogram construction and state movement are unchanged.
+
+The loop-based investigation prototype first calculated input * b0 and then
+added the Yule bias in another statement. That changed Clang's available FMA
+contraction relative to the scalar expression bias + input * b0, causing tiny
+feedback-state differences. The new expression matches the scalar expression
+instead of disabling contraction or changing global compiler flags. It retains
+the compiler's existing contraction policy in both scalar and vector kernels.
+Clang's scoped contraction controls are documented here:
+https://clang.llvm.org/docs/LanguageExtensions.html#extensions-to-specify-floating-point-flags
+
+The paired path is enabled by default only for Clang on AArch64 and x86_64 with
+SSE2, without fast-math, and without the legacy HAVE_SSE2 implementation.
+Only stereo takes this path. Mono, GNU GCC, other compilers/architectures and
+legacy HAVE_SSE2 retain their existing filtering paths. Defining
+WAVEGAIN_FILTER_SIMD=0 disables the paired path for comparison or fallback.
+
+GNU GCC 16's vector/scalar contraction differs even with the unrolled expression
+in the exploratory probe; it remains on the scalar path. This avoids imposing
+a different floating-point policy on unrelated gain/dither code. Future GCC
+support requires its own proven operation/rounding mapping and regression tests.
+Floating-point states can still differ between architectures/compilers as they
+did before: equality is checked within each build, not across different builds.
+
+Correctness validation
+----------------------
+The C probes compare scalar and paired Yule/Butterworth outputs bit-for-bit for
+all twelve rates. Signals include silence, impulses, DC, alternating full scale,
+deterministic random noise, distinct-channel tones, very quiet tones and chirps.
+Calls include single-sample and irregular chunk boundaries. Public API tests
+compare prehistories, partial-window sums, histograms, track/album gains and
+reset state for mono/stereo and several chunk patterns (including window +/-1).
+Actual histogram-bin transitions are located by bisection and tested at adjacent
+double amplitudes and tiny level offsets. Invalid samples/energy overflow are
+rejected under address, undefined-behavior and float-cast-overflow sanitizers.
+
+Clang 21 arm64 and x86_64 default SIMD match their corrected scalar references
+byte-for-byte. The eleven unaffected rates also match prior 3fe2589 internal
+state/histograms/gains. GNU GCC 16 fallback matches its prior scalar results.
+Additional Clang -O3 and -ffp-contract=off probes pass. Historical loop-prototype
+results are kept as separate evidence; they are not the production validation.
+
+make check and make check-interop pass on arm64 with a full AddressSanitizer CLI
+and on x86_64. Checks include existing PCM, sparse large-file WAV/Wave64, TODO,
+progress, help, stdin/stdout and FFmpeg interoperability regressions.
+The new independent 88.2 kHz test covers mono/stereo, four tones, WAV/Wave64,
+five output sample formats and undo. FFmpeg gain differences are 0.01-0.02 dB.
+Exact FFmpeg equality is not required: its float filter history, RMS scaling and
+64.54 reference differ from WaveGain's binary64 history and 64.82 reference.
+
+Performance
+-----------
+Sixty seconds of stereo 96 kHz input, Clang 21 -O2, five randomized interleaved
+runs after a warmup, warm filesystem cache and file output included. Baseline
+is 3fe2589, after the safe-buffer/float work, so this isolates the new filters.
+Complete output bytes match in all six workloads.
+
+Case          Old seconds New seconds Throughput  Bytes equal
+calculate24   0.438253  0.269883  1.624x   True
+apply16       0.500628  0.332885  1.504x   True
+apply24       0.506144  0.363272  1.393x   True
+float24       0.496572  0.332768  1.492x   True
+dither24      0.749183  0.580074  1.292x   True
+limiter24     0.558493  0.375735  1.486x   True
+
+The ordinary apply cases improve by about 1.4-1.5x, calculation by about 1.6x,
+and noise-shaped dither / limiter workloads by about 1.3x / 1.5x in this test.
+These are synthetic warm-cache measurements on this host, not a universal speed
+promise. Cold storage, mono, other rates and large Wave64 storage throughput
+have not been benchmarked. RMS/dither/limiter still limit some workloads.
+
+Reproduction and evidence
+-------------------------
+make check
+make check-interop                         # requires FFmpeg / ffprobe
+python3 tools/check_filter_stability.py --output /tmp/filter-stability.json
+python3 test/filter_regressions.py --reference-ref 3fe2589 \
+    --output /tmp/filter-equivalence.json
+python3 test/filter_regressions.py --cflags='-O2 -arch x86_64' \
+    --reference-ref 3fe2589 --output /tmp/filter-equivalence-x86.json
+python3 test/filter_regressions.py --cc gcc-16 --reference-ref 3fe2589
+python3 test/filter_regressions.py \
+    --cflags='-O2 -fsanitize=address,undefined,float-cast-overflow -fno-sanitize-recover=all'
+python3 tools/benchmark_conversion.py --ref 3fe2589 --seconds 60 --repeats 5 \
+    --variants baseline,working_tree --output /tmp/filter-performance.json
+python3 test/filter_interop.py --output /tmp/filter-88200-interop.json
+
+Force scalar CLI: make release CPPFLAGS='-D_FILE_OFFSET_BITS=64 -DWAVEGAIN_FILTER_SIMD=0'
+Historical prototype: tools/check_filter_equivalence.py defaults to --ref 74e50db.
+
+Evidence files: filter-stability.json, filter-equivalence-{arm64,x86_64,gcc,
+sanitize,x86-sanitize}.json, filter-88200-{interop,legacy-interop}.json and
+filter-performance.json. Future validation remains for native Windows/MSVC,
+Linux and additional compiler versions/options. Unsafe fast-math builds and
+cross-compiler bitwise equivalence are not part of the validated contract.

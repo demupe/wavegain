@@ -48,7 +48,7 @@ install: $(TARGET)
 uninstall:
 	rm -f $(DESTDIR)$(bindir)/$(TARGET)
 
-check: $(TARGET) check-docs
+check: $(TARGET) check-docs check-filters
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEFS) -UNDEBUG -o test/portability test/portability.c w64.c $(LIBS)
 	./test/portability
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEFS) -UNDEBUG -o test/wave64 test/wave64.c $(LIBS)
@@ -62,12 +62,16 @@ docs:
 check-docs:
 	python3 tools/generate_help.py --check
 
+check-filters:
+	python3 test/filter_regressions.py --cc "$(CC)" --cflags="$(CPPFLAGS) $(CFLAGS)"
+
 check-interop: $(TARGET)
 	python3 test/wave64_interop.py
+	python3 test/filter_interop.py
 
 clean:
 	rm -f $(TARGET) test/portability test/wave64
 
 distclean: clean
 
-.PHONY : all debug release asan install uninstall clean distclean check check-interop docs check-docs
+.PHONY : all debug release asan install uninstall clean distclean check check-interop check-filters docs check-docs

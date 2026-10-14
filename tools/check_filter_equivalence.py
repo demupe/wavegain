@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
-"""Compare scalar and paired IIR state, independently of rounded ReplayGain output."""
+"""Historical loop-prototype probe; production SIMD checks are in test/filter_regressions.py."""
 import argparse
 import array
 import json
@@ -62,9 +62,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cc", default="gcc")
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--ref", default="74e50db", help="Git source snapshot for the historical prototype")
     args = parser.parse_args()
-    original = {p.name: p.read_bytes() for p in [*ROOT.glob("*.c"), *ROOT.glob("*.h")]}
-    report = {}
+    names = subprocess.check_output(["git", "ls-tree", "--name-only", args.ref], cwd=ROOT, text=True).splitlines()
+    original = {name: subprocess.check_output(["git", "show", f"{args.ref}:{name}"], cwd=ROOT)
+                for name in names if name.endswith((".c", ".h"))}
+    report = {"source_ref": args.ref}
     with tempfile.TemporaryDirectory(prefix="wavegain-filter-equivalence-") as temp:
         folder = Path(temp)
         for mode, flags in [("default_contract", []), ("contract_off", ["-ffp-contract=off"])]:

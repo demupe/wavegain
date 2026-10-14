@@ -3,6 +3,9 @@ Date: 2026-10-14 (Asia/Tokyo)
 Source baseline: 74e50db
 Host: macOS arm64, Apple clang 21.0.0
 
+Follow-up: filter-simd-investigation.txt documents the 88.2 kHz coefficient
+correction and expression-preserving production SIMD implementation.
+
 Outcome
 -------
 The largest measured opportunity is stereo ReplayGain filtering. A temporary

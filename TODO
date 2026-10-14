@@ -42,20 +42,28 @@ Reproduce: make check; make check-interop (requires FFmpeg)
     licensing evidence or rights-holder clarification is still required.
 
 Performance investigation (2026-10-14): doc/conversion-performance.txt
-- [OPEN] Paired stereo ReplayGain filters: prototype ~1.5x full conversion
-    throughput on macOS arm64; verify explicit scalar/SIMD rounding policy,
-    supported CPU/compiler guards, mono fallback and histogram boundaries.
+- [DONE] Paired stereo ReplayGain filters: expression-preserving SIMD on
+    Clang arm64/x86_64; mono, GNU GCC and other targets retain scalar/legacy
+    paths. Kernel/API state, histogram boundaries and unaffected-rate output
+    match the scalar reference bit-for-bit on tested builds. Current benchmark
+    gives ~1.5x ordinary stereo conversion throughput on macOS arm64.
+    Details and limits: doc/filter-simd-investigation.txt.
 - [DONE] IEEE float serializer: replace frexp/byte reconstruction with guarded
     binary32 bit copying and an explicit little-endian fallback. Subnormals
     retain their value; signed zeros still serialize as positive zero.
     Exact-byte edge tests and input immutability checks cover the serializer.
-- [OPEN, correctness] 88.2kHz ReplayGain can produce NaN/non-finite filter
-    output and an undefined histogram cast. Reproduced in the existing scalar
-    implementation as well as the SIMD experiment; investigate coefficients
-    and state before adopting optimized filters.
+- [DONE] 88.2kHz ReplayGain: both old denominators were unstable (real poles
+    ~1.426 and ~1.067). Replace only this rate with FFmpeg coefficients in both
+    table layouts; all twelve rates pass stability checks. Reject non-finite
+    RMS levels and clamp before histogram casts. FFmpeg comparison and
+    mono/stereo WAV/Wave64 conversion/undo checks cover the corrected rate.
+- [DONE] Legacy SSE2 Yule kernel used padding instead of b10. Correct its
+    final numerator tap; all-rate impulse/DC/tone checks against long-double
+    reference pass under x86_64 Clang. Native Windows/MSVC execution remains
+    a platform validation follow-up.
 - [DONE] Reuse conversion/packing buffers per output file; check allocation,
     byte-count overflow and write failures before replacing the original file.
-    Integer packing, gain/dither/RNG arithmetic and filter math are unchanged.
+    Buffer reuse preserves integer packing and gain/dither/RNG arithmetic.
     See doc/conversion-safe-implementation.txt and conversion-safe-performance.json.
     Overall speed differences remain small in the 96 kHz synthetic benchmark.
 - [OPEN] Profile noise-shaped dither and common-path specialization separately;

@@ -164,8 +164,8 @@ __attribute__((constructor)) static void bench_init(void) { atexit(bench_report)
     s = replace(s, "\t\t\t\tsample_buffer = output_to_PCM(pcm, sample_buffer, wg_opts->channels,\n\t\t\t\t\t\tbout, wg_opts->format);",
                 "\t\t\t\tbench_times[4] += (double)(clock() - transform_start) / CLOCKS_PER_SEC;\n"
                 "\t\t\t\tsample_buffer = BENCH_TIME(5, output_to_PCM(pcm, sample_buffer, wg_opts->channels, bout, wg_opts->format));")
-    s = replace(s, "write_audio_file(aufile, sample_buffer, bout * wg_opts->channels);",
-                "BENCH_TIME(6, write_audio_file(aufile, sample_buffer, bout * wg_opts->channels));")
+    s = replace(s, "write_audio_file(aufile, sample_buffer, bout * wg_opts->channels)",
+                "BENCH_TIME(6, write_audio_file(aufile, sample_buffer, bout * wg_opts->channels))")
     source["wavegain.c"] = s.encode()
     return source
 

@@ -1,6 +1,8 @@
 WaveGain safe conversion improvements
 Date: 2026-10-14 (Asia/Tokyo)
 Baseline: 74e50db; branch: fix/64bit-wave64
+Historical buffer/float implementation report. Subsequent filter fixes and SIMD
+are documented in filter-simd-investigation.txt.
 
 Implemented
 -----------
