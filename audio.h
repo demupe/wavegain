@@ -170,6 +170,8 @@ typedef struct
 	int           format;
 	Int64_t data_offset;
 	Uint64_t expected_bytes;
+	unsigned char *scratch;
+	size_t scratch_capacity;
 } audio_file;
 
 int w64_write_header(audio_file *out, wavegain_opt *opt);

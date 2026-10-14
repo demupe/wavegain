@@ -1,0 +1,14 @@
+{
+  "baseline": {
+    "median_wall_seconds": 0.4704463329981081,
+    "median_user_seconds": 0.4072730000000002,
+    "output_sha256": "efd15d5c7baeba9860ba8dc9bf1b000c383ea88e33ffad8c9a65a7324a6e6734"
+  },
+  "pair_filter": {
+    "median_wall_seconds": 0.3359020419884473,
+    "median_user_seconds": 0.27780899999999953,
+    "output_sha256": "efd15d5c7baeba9860ba8dc9bf1b000c383ea88e33ffad8c9a65a7324a6e6734"
+  },
+  "speedup": 1.4005462134531717,
+  "both_outputs_identical": true
+}

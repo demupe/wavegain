@@ -28,6 +28,7 @@
 
 
 #include <stdint.h>
+#include <float.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -1119,6 +1120,7 @@ int close_audio_file( FILE *in, audio_file *aufile, wavegain_opt *opt)
 	if(opt)
 		free(opt);
 
+	free(aufile->scratch);
 	if (fclose(aufile->sndfile)) ok = 0;
 
 	if (aufile)
@@ -1361,22 +1363,67 @@ int write_aiff_header(audio_file *aufile)
 	return fwrite(header, sizeof(header), 1, aufile->sndfile);
 }
 
+/* Reuse one packing buffer per output stream. Keep the previous allocation
+ * intact if growth fails, and check byte counts before multiplying on ILP32. */
+static void *output_buffer(audio_file *out, unsigned int samples, size_t width)
+{
+    size_t bytes;
+    unsigned char *grown;
+    if (!width || samples > SIZE_MAX / width) return NULL;
+    bytes = (size_t)samples * width;
+    if (out->scratch_capacity < bytes) {
+        grown = realloc(out->scratch, bytes);
+        if (!grown) return NULL;
+        out->scratch = grown;
+        out->scratch_capacity = bytes;
+    }
+    return out->scratch;
+}
+
+static int write_output_samples(audio_file *out, const void *data,
+                                unsigned int samples, size_t width)
+{
+    if (!samples || !width || samples > SIZE_MAX / width ||
+        samples > (Uint64_t)-1 - out->samples) return 0;
+    if (fwrite(data, width, samples, out->sndfile) != samples) return 0;
+    out->samples += samples;
+    return 1;
+}
+
+/* Both signed zeros historically serialize as positive zero. */
+static uint32_t float_pcm_bits(const float *value)
+{
+    uint32_t bits;
+    memcpy(&bits, value, sizeof(bits));
+    return (bits & UINT32_C(0x7fffffff)) ? bits : 0;
+}
+
+/* Serialize by bits, never by arithmetic, so subnormals retain their value.
+ * This helper also provides the explicit big-endian-host fallback. */
+static void pack_float_le(unsigned char *data, const float *input,
+                          unsigned int samples)
+{
+    unsigned int i;
+    for (i = 0; i < samples; i++) {
+        uint32_t bits = float_pcm_bits(input + i);
+        WRITE_U32(data + (size_t)i * 4, bits);
+    }
+}
+
 int write_audio_8bit(audio_file *aufile, void *sample_buffer, unsigned int samples)
 {
 	int              ret;
 	unsigned int     i;
 	unsigned char    *sample_buffer8 = (unsigned char*)sample_buffer;
-	unsigned char    *data = malloc(samples*aufile->bits_per_sample*sizeof(char)/8);
+	unsigned char    *data = output_buffer(aufile, samples, aufile->bits_per_sample / 8);
 
-	aufile->samples += samples;
+	if (!data) return 0;
 
 	for (i = 0; i < samples; i++)
 		data[i] = (sample_buffer8[i]+128) & 0xFF;
 
-	ret = fwrite(data, samples*aufile->bits_per_sample/8, 1, aufile->sndfile);
+	ret = write_output_samples(aufile, data, samples, aufile->bits_per_sample / 8);
 
-	if (data)
-		free(data);
 
 	return ret;
 }
@@ -1386,9 +1433,9 @@ int write_audio_16bit(audio_file *aufile, void *sample_buffer, unsigned int samp
 	int          ret;
 	unsigned int i;
 	short        *sample_buffer16 = (short*)sample_buffer;
-	char         *data = malloc(samples*aufile->bits_per_sample*sizeof(char)/8);
+	char         *data = output_buffer(aufile, samples, aufile->bits_per_sample / 8);
 
-	aufile->samples += samples;
+	if (!data) return 0;
 
 #ifdef __APPLE__
 		if (aufile->endianness != machine_endianness) {
@@ -1407,10 +1454,8 @@ int write_audio_16bit(audio_file *aufile, void *sample_buffer, unsigned int samp
 		}
 	}
 
-	ret = fwrite(data, samples*aufile->bits_per_sample/8, 1, aufile->sndfile);
+	ret = write_output_samples(aufile, data, samples, aufile->bits_per_sample / 8);
 
-	if (data)
-		free(data);
 
 	return ret;
 }
@@ -1420,9 +1465,9 @@ int write_audio_24bit(audio_file *aufile, void *sample_buffer, unsigned int samp
 	int          ret;
 	unsigned int i;
 	int32_t      *sample_buffer24 = (int32_t*)sample_buffer;
-	char         *data = malloc(samples*aufile->bits_per_sample*sizeof(char)/8);
+	char         *data = output_buffer(aufile, samples, aufile->bits_per_sample / 8);
 
-	aufile->samples += samples;
+	if (!data) return 0;
 
 	for (i = 0; i < samples; i++) {
 		data[i*3] = (char)(sample_buffer24[i] & 0xFF);
@@ -1430,10 +1475,8 @@ int write_audio_24bit(audio_file *aufile, void *sample_buffer, unsigned int samp
 		data[i*3+2] = (char)((sample_buffer24[i] >> 16) & 0xFF);
 	}
 
-	ret = fwrite(data, samples*aufile->bits_per_sample/8, 1, aufile->sndfile);
+	ret = write_output_samples(aufile, data, samples, aufile->bits_per_sample / 8);
 
-	if (data)
-		free(data);
 
 	return ret;
 }
@@ -1443,9 +1486,9 @@ int write_audio_32bit(audio_file *aufile, void *sample_buffer, unsigned int samp
 	int          ret;
 	unsigned int i;
 	int32_t      *sample_buffer32 = (int32_t*)sample_buffer;
-	char         *data = malloc(samples*aufile->bits_per_sample*sizeof(char)/8);
+	char         *data = output_buffer(aufile, samples, aufile->bits_per_sample / 8);
 
-	aufile->samples += samples;
+	if (!data) return 0;
 
 	for (i = 0; i < samples; i++) {
 		data[i*4] = (char)(sample_buffer32[i] & 0xFF);
@@ -1454,63 +1497,41 @@ int write_audio_32bit(audio_file *aufile, void *sample_buffer, unsigned int samp
 		data[i*4+3] = (char)((sample_buffer32[i] >> 24) & 0xFF);
 	}
 
-	ret = fwrite(data, samples*aufile->bits_per_sample/8, 1, aufile->sndfile);
+	ret = write_output_samples(aufile, data, samples, aufile->bits_per_sample / 8);
 
-	if (data)
-		free(data);
 
 	return ret;
 }
 
 int write_audio_float(audio_file *aufile, void *sample_buffer, unsigned int samples)
 {
-	int           ret;
-	unsigned int  i;
-	float         *sample_buffer_f = (float*)sample_buffer;
-	unsigned char *data = malloc(samples*aufile->bits_per_sample*sizeof(char)/8);
-
-	aufile->samples += samples;
-
-	for (i = 0; i < samples; i++) {
-		int   exponent,
-		      mantissa,
-		      negative = 0;
-		float in = sample_buffer_f[i];
-
-		data[i*4] = 0;
-		data[i*4+1] = 0;
-		data[i*4+2] = 0;
-		data[i*4+3] = 0;
-		if (in == 0.f)
-			continue;
-
-		if (in < 0.0) {
-			in *= -1.0;
-			negative = 1;
-		}
-		in = (float)frexp(in, &exponent);
-		exponent += 126;
-		in *= (float)0x1000000;
-		mantissa = (((int)in) & 0x7FFFFF);
-
-		if (negative)
-			data[i*4+3] |= 0x80;
-
-		if (exponent & 0x01)
-			data[i*4+2] |= 0x80;
-
-		data[i*4] = mantissa & 0xFF;
-		data[i*4+1] = (mantissa >> 8) & 0xFF;
-		data[i*4+2] |= (mantissa >> 16) & 0x7F;
-		data[i*4+3] |= (exponent >> 1) & 0x7F;
-	}
-
-	ret = fwrite(data, samples*aufile->bits_per_sample/8, 1, aufile->sndfile);
-
-	if (data)
-		free(data);
-
-	return ret;
+    const float *input = sample_buffer;
+    const float one = 1.f;
+    const uint32_t endian = 1;
+    uint32_t one_bits;
+    unsigned char *data;
+    unsigned int i;
+    /* WAV float input already requires IEEE binary32; reject an unsupported
+     * native layout rather than silently treating it as the wrong format. */
+    if (sizeof(float) != sizeof(uint32_t) || FLT_RADIX != 2 ||
+        FLT_MANT_DIG != 24 || FLT_MIN_EXP != -125 || FLT_MAX_EXP != 128)
+        return 0;
+    memcpy(&one_bits, &one, sizeof(one_bits));
+    if (one_bits != UINT32_C(0x3f800000)) return 0;
+    data = output_buffer(aufile, samples, 4);
+    if (!data) return 0;
+    if (*(const unsigned char *)&endian) {
+        memcpy(data, input, (size_t)samples * 4);
+        for (i = 0; i < samples; i++) {
+            uint32_t bits;
+            memcpy(&bits, data + (size_t)i * 4, sizeof(bits));
+            if (!(bits & UINT32_C(0x7fffffff)))
+                memset(data + (size_t)i * 4, 0, 4);
+        }
+    } else {
+        pack_float_le(data, input, samples);
+    }
+    return write_output_samples(aufile, data, samples, 4);
 }
 
 void* output_to_PCM(double **input, void *sample_buffer, int channels,

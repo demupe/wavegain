@@ -283,6 +283,7 @@ int write_gains(const char *filename, double radio_gain, double audiophile_gain,
 	audio_file   *aufile;
 	int          readcount,
 	             result = 0,
+	             output_failed = 0,
 	             i;
 	double       Gain;
 	double       scale;
@@ -290,7 +291,7 @@ int write_gains(const char *filename, double radio_gain, double audiophile_gain,
 	double       last_update = -1.;
 	double       wrap_prev_pos = 0;
 	double       wrap_prev_neg = 0;
-	void         *sample_buffer;
+	void         *sample_buffer = NULL;
 	input_format *format;
 
 	char         template[] = ".tmp_XXXXXX";
@@ -467,6 +468,23 @@ int write_gains(const char *filename, double radio_gain, double audiophile_gain,
 			write_log(" Applying Gain of %+5.2lf dB to file: %s\n", Gain, filename);
 		}
 
+        {
+            size_t element_size;
+            switch (wg_opts->format) {
+            case WAV_FMT_8BIT: element_size = sizeof(char); break;
+            case WAV_FMT_16BIT:
+            case WAV_FMT_AIFF: element_size = sizeof(short); break;
+            case WAV_FMT_FLOAT: element_size = sizeof(float); break;
+            default: element_size = sizeof(int32_t); break;
+            }
+            sample_buffer = malloc(element_size * wg_opts->channels * BUFFER_LEN);
+            if (!sample_buffer) {
+                fprintf(stderr, " Error allocating PCM output buffer.\n");
+                output_failed = 1;
+                goto conversion_done;
+            }
+        }
+
 		while (1) {
 
 			readcount = wg_opts->read_samples(wg_opts->readdata, pcm, BUFFER_LEN, 0, 0);
@@ -487,13 +505,13 @@ int write_gains(const char *filename, double radio_gain, double audiophile_gain,
             }
 
 			if (readcount == 0) {
+				output_failed = ferror(infile) != 0;
 				break;
 			} 
-			else if (readcount < 0) {
-				/* Error in the stream. Not a problem, just reporting it in case 
-				 * we (the app) cares. In this case, we don't
-				 */
-			} 
+            else if (readcount < 0) {
+                output_failed = 1;
+                break;
+            }
 			else {
 				int   convsize = BUFFER_LEN;
 				int   j,
@@ -505,7 +523,6 @@ int write_gains(const char *filename, double radio_gain, double audiophile_gain,
 				 * (host order) (unless float output)
 				 * and apply ReplayGain scaling, etc. 
 				 */
-				sample_buffer = malloc(sizeof(double) * wg_opts->channels * bout);
 				for(k = 0; k < wg_opts->channels; k++) {
 					for(j = 0; j < bout; j++, i++) {
 						Int64_t val;
@@ -548,16 +565,19 @@ int write_gains(const char *filename, double radio_gain, double audiophile_gain,
 				sample_buffer = output_to_PCM(pcm, sample_buffer, wg_opts->channels,
 						bout, wg_opts->format);
 				/* write to file */
-				write_audio_file(aufile, sample_buffer, bout * wg_opts->channels);
-
-				free(sample_buffer);
+                if (!write_audio_file(aufile, sample_buffer, bout * wg_opts->channels)) {
+                    output_failed = 1;
+                    break;
+                }
 			}
 		}
+conversion_done:
+		free(sample_buffer);
 		for (i = 0; i < wg_opts->channels; i++)
 			if (pcm[i]) free(pcm[i]);
 		if (pcm) free(pcm);
 		format->close_func(wg_opts->readdata);
-		if (!close_audio_file(infile, aufile, wg_opts)) {
+		if (!close_audio_file(infile, aufile, wg_opts) || output_failed) {
 			fclose(infile);
 			if (!settings->std_out) remove(tempName);
 			fprintf(stderr, " Error finalizing output; original file preserved.\n");

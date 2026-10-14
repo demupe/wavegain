@@ -40,3 +40,24 @@ Reproduce: make check; make check-interop (requires FFmpeg)
     grants absent from their companion/configuration headers. No unsupported
     license replacement or author attribution was made. Original release
     licensing evidence or rights-holder clarification is still required.
+
+Performance investigation (2026-10-14): doc/conversion-performance.txt
+- [OPEN] Paired stereo ReplayGain filters: prototype ~1.5x full conversion
+    throughput on macOS arm64; verify explicit scalar/SIMD rounding policy,
+    supported CPU/compiler guards, mono fallback and histogram boundaries.
+- [DONE] IEEE float serializer: replace frexp/byte reconstruction with guarded
+    binary32 bit copying and an explicit little-endian fallback. Subnormals
+    retain their value; signed zeros still serialize as positive zero.
+    Exact-byte edge tests and input immutability checks cover the serializer.
+- [OPEN, correctness] 88.2kHz ReplayGain can produce NaN/non-finite filter
+    output and an undefined histogram cast. Reproduced in the existing scalar
+    implementation as well as the SIMD experiment; investigate coefficients
+    and state before adopting optimized filters.
+- [DONE] Reuse conversion/packing buffers per output file; check allocation,
+    byte-count overflow and write failures before replacing the original file.
+    Integer packing, gain/dither/RNG arithmetic and filter math are unchanged.
+    See doc/conversion-safe-implementation.txt and conversion-safe-performance.json.
+    Overall speed differences remain small in the 96 kHz synthetic benchmark.
+- [OPEN] Profile noise-shaped dither and common-path specialization separately;
+    preserve RNG/history/rounding semantics. Compiler flags alone gave only
+    modest or inconsistent gains in this workload.

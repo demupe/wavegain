@@ -2,7 +2,18 @@
 /* Regression tests for LP64 PCM corruption and offsets beyond 2 GiB.
  * Including audio.c also exercises its private chunk-decoding helpers. */
 #include <assert.h>
+#include <stdlib.h>
+#include <errno.h>
+static int fail_growth, growth_calls;
+static void *checked_realloc(void *ptr, size_t size)
+{
+    growth_calls++;
+    if (fail_growth) { errno = ENOMEM; return NULL; }
+    return realloc(ptr, size);
+}
+#define realloc checked_realloc
 #include "../audio.c"
+#undef realloc
 
 static void check_pcm(int format, unsigned int bytes)
 {
@@ -34,6 +45,7 @@ static void check_pcm(int format, unsigned int bytes)
         for (j = 0; j < bytes; j++)
             assert(encoded[i * bytes + j] == ((expected >> (8 * j)) & 255));
     }
+    free(out.scratch);
     fclose(out.sndfile);
 }
 
@@ -85,12 +97,81 @@ static void check_gain(void)
     assert(read_d64_be(encoded) == 0.5);
 }
 
+static void check_float_encoding(void)
+{
+    const uint32_t bits[] = {0, 0x80000000, 1, 0x80000001,
+        0x007fffff, 0x807fffff, 0x00800000, 0x80800000,
+        0x3f000000, 0xbf000000, 0x7f7fffff, 0xff7fffff,
+        0x7f800000, 0xff800000, 0x7fc12345};
+    float input[sizeof(bits) / sizeof(bits[0])];
+    unsigned char expected[sizeof(bits)], actual[sizeof(bits)], fallback[sizeof(bits)];
+    audio_file out = {0};
+    unsigned int i;
+    memcpy(input, bits, sizeof(bits));
+    for (i = 0; i < sizeof(bits) / sizeof(bits[0]); i++) {
+        uint32_t value = bits[i] == UINT32_C(0x80000000) ? 0 : bits[i];
+        WRITE_U32(expected + i * 4, value);
+    }
+    out.sndfile = tmpfile();
+    out.bits_per_sample = 32;
+    assert(out.sndfile);
+    assert(write_audio_float(&out, input, sizeof(input) / sizeof(input[0])) == 1);
+    assert(out.samples == sizeof(input) / sizeof(input[0]));
+    assert(!memcmp(input, bits, sizeof(bits))); /* Input is never changed. */
+    rewind(out.sndfile);
+    assert(fread(actual, 1, sizeof(actual), out.sndfile) == sizeof(actual));
+    assert(!memcmp(actual, expected, sizeof(actual)));
+    pack_float_le(fallback, input, sizeof(input) / sizeof(input[0]));
+    assert(!memcmp(fallback, expected, sizeof(fallback)));
+    free(out.scratch);
+    fclose(out.sndfile);
+}
+
+static void check_buffer_reuse_and_errors(void)
+{
+    int32_t input[] = {1, -1, 123456, -654321};
+    audio_file out = {0};
+    unsigned char *saved;
+    size_t capacity;
+    int calls;
+    out.bits_per_sample = 24;
+    out.sndfile = tmpfile();
+    assert(out.sndfile);
+    calls = growth_calls;
+    assert(write_audio_24bit(&out, input, 2) == 1);
+    assert(growth_calls == calls + 1);
+    saved = out.scratch;
+    capacity = out.scratch_capacity;
+    assert(write_audio_24bit(&out, input, 1) == 1);
+    assert(out.scratch == saved && out.scratch_capacity == capacity);
+    assert(growth_calls == calls + 1 && out.samples == 3);
+    fail_growth = 1;
+    assert(write_audio_24bit(&out, input, 4) == 0);
+    fail_growth = 0;
+    assert(out.scratch == saved && out.scratch_capacity == capacity);
+    assert(out.samples == 3 && FTELL64(out.sndfile) == 9);
+    assert(write_audio_24bit(&out, input, 4) == 1 && out.samples == 7);
+    assert(out.scratch_capacity >= 12);
+    assert(!output_buffer(&out, 2, SIZE_MAX)); /* multiplication overflow */
+    assert(write_audio_24bit(&out, input, 0) == 0 && out.samples == 7);
+    free(out.scratch);
+    fclose(out.sndfile);
+    out.scratch = NULL; out.scratch_capacity = 0; out.samples = 0;
+    out.sndfile = fopen("test/outsox.wav", "rb"); /* Valid stream, not writable. */
+    assert(out.sndfile);
+    assert(write_audio_24bit(&out, input, 1) == 0 && out.samples == 0);
+    free(out.scratch);
+    fclose(out.sndfile);
+}
+
 int main(void)
 {
     check_pcm(WAV_FMT_24BIT, 3);
     check_pcm(WAV_FMT_32BIT, 4);
     check_gain();
+    check_float_encoding();
+    check_buffer_reuse_and_errors();
     check_large_wav();
-    puts("PCM, gain chunk, and sparse 3 GiB WAV tests passed");
+    puts("PCM, IEEE float, reusable buffers/error handling, gain, and sparse 3 GiB WAV tests passed");
     return 0;
 }

@@ -1,0 +1,194 @@
+{
+  "default_contract": {
+    "per_rate": {
+      "96000": {
+        "baseline_nonfinite": 0,
+        "pair_nonfinite": 0,
+        "baseline_max_abs_finite": 15167.615347369954,
+        "pair_max_abs_finite": 15167.615347381481,
+        "max_absolute_difference_finite": 1.4113643942437193e-07
+      },
+      "88200": {
+        "baseline_nonfinite": 8456,
+        "pair_nonfinite": 8456,
+        "baseline_max_abs_finite": 1.4568678351485917e+307,
+        "pair_max_abs_finite": 1.4568678351485917e+307,
+        "max_absolute_difference_finite": 1.0363400807259033e+295
+      },
+      "64000": {
+        "baseline_nonfinite": 0,
+        "pair_nonfinite": 0,
+        "baseline_max_abs_finite": 19018.661877907227,
+        "pair_max_abs_finite": 19018.66187790898,
+        "max_absolute_difference_finite": 1.253420123248361e-08
+      },
+      "48000": {
+        "baseline_nonfinite": 0,
+        "pair_nonfinite": 0,
+        "baseline_max_abs_finite": 22266.583537962553,
+        "pair_max_abs_finite": 22266.583537962477,
+        "max_absolute_difference_finite": 1.0272742656525224e-09
+      },
+      "44100": {
+        "baseline_nonfinite": 0,
+        "pair_nonfinite": 0,
+        "baseline_max_abs_finite": 24331.963717833714,
+        "pair_max_abs_finite": 24331.96371783355,
+        "max_absolute_difference_finite": 8.649294613860548e-10
+      },
+      "32000": {
+        "baseline_nonfinite": 0,
+        "pair_nonfinite": 0,
+        "baseline_max_abs_finite": 25592.700421659294,
+        "pair_max_abs_finite": 25592.70042165931,
+        "max_absolute_difference_finite": 8.017195796128362e-10
+      },
+      "24000": {
+        "baseline_nonfinite": 0,
+        "pair_nonfinite": 0,
+        "baseline_max_abs_finite": 28367.010010815964,
+        "pair_max_abs_finite": 28367.010010815968,
+        "max_absolute_difference_finite": 5.857145879417658e-10
+      },
+      "22050": {
+        "baseline_nonfinite": 0,
+        "pair_nonfinite": 0,
+        "baseline_max_abs_finite": 29244.894063030184,
+        "pair_max_abs_finite": 29244.894063030108,
+        "max_absolute_difference_finite": 6.111804395914078e-10
+      },
+      "16000": {
+        "baseline_nonfinite": 0,
+        "pair_nonfinite": 0,
+        "baseline_max_abs_finite": 34389.18101370168,
+        "pair_max_abs_finite": 34389.18101370153,
+        "max_absolute_difference_finite": 3.8403413782361895e-10
+      },
+      "12000": {
+        "baseline_nonfinite": 0,
+        "pair_nonfinite": 0,
+        "baseline_max_abs_finite": 36751.95609734789,
+        "pair_max_abs_finite": 36751.95609734822,
+        "max_absolute_difference_finite": 5.250058165984228e-10
+      },
+      "11025": {
+        "baseline_nonfinite": 0,
+        "pair_nonfinite": 0,
+        "baseline_max_abs_finite": 35867.855356305015,
+        "pair_max_abs_finite": 35867.85535630488,
+        "max_absolute_difference_finite": 3.4015101846307516e-10
+      },
+      "8000": {
+        "baseline_nonfinite": 0,
+        "pair_nonfinite": 0,
+        "baseline_max_abs_finite": 34637.221653190616,
+        "pair_max_abs_finite": 34637.22165319059,
+        "max_absolute_difference_finite": 2.02817318495363e-10
+      }
+    },
+    "double_values": 196608,
+    "bitwise_different_values": 174866,
+    "max_absolute_difference": 1.0363400807259033e+295,
+    "bitwise_equal": false
+  },
+  "contract_off": {
+    "per_rate": {
+      "96000": {
+        "baseline_nonfinite": 0,
+        "pair_nonfinite": 0,
+        "baseline_max_abs_finite": 15167.615347370878,
+        "pair_max_abs_finite": 15167.615347370878,
+        "max_absolute_difference_finite": 0.0
+      },
+      "88200": {
+        "baseline_nonfinite": 8462,
+        "pair_nonfinite": 8462,
+        "baseline_max_abs_finite": 9.132538624410152e+306,
+        "pair_max_abs_finite": 9.132538624410152e+306,
+        "max_absolute_difference_finite": 0.0
+      },
+      "64000": {
+        "baseline_nonfinite": 0,
+        "pair_nonfinite": 0,
+        "baseline_max_abs_finite": 19018.66187790418,
+        "pair_max_abs_finite": 19018.66187790418,
+        "max_absolute_difference_finite": 0.0
+      },
+      "48000": {
+        "baseline_nonfinite": 0,
+        "pair_nonfinite": 0,
+        "baseline_max_abs_finite": 22266.58353796249,
+        "pair_max_abs_finite": 22266.58353796249,
+        "max_absolute_difference_finite": 0.0
+      },
+      "44100": {
+        "baseline_nonfinite": 0,
+        "pair_nonfinite": 0,
+        "baseline_max_abs_finite": 24331.963717833452,
+        "pair_max_abs_finite": 24331.963717833452,
+        "max_absolute_difference_finite": 0.0
+      },
+      "32000": {
+        "baseline_nonfinite": 0,
+        "pair_nonfinite": 0,
+        "baseline_max_abs_finite": 25592.700421659265,
+        "pair_max_abs_finite": 25592.700421659265,
+        "max_absolute_difference_finite": 0.0
+      },
+      "24000": {
+        "baseline_nonfinite": 0,
+        "pair_nonfinite": 0,
+        "baseline_max_abs_finite": 28367.010010815953,
+        "pair_max_abs_finite": 28367.010010815953,
+        "max_absolute_difference_finite": 0.0
+      },
+      "22050": {
+        "baseline_nonfinite": 0,
+        "pair_nonfinite": 0,
+        "baseline_max_abs_finite": 29244.894063029744,
+        "pair_max_abs_finite": 29244.894063029744,
+        "max_absolute_difference_finite": 0.0
+      },
+      "16000": {
+        "baseline_nonfinite": 0,
+        "pair_nonfinite": 0,
+        "baseline_max_abs_finite": 34389.18101370152,
+        "pair_max_abs_finite": 34389.18101370152,
+        "max_absolute_difference_finite": 0.0
+      },
+      "12000": {
+        "baseline_nonfinite": 0,
+        "pair_nonfinite": 0,
+        "baseline_max_abs_finite": 36751.9560973482,
+        "pair_max_abs_finite": 36751.9560973482,
+        "max_absolute_difference_finite": 0.0
+      },
+      "11025": {
+        "baseline_nonfinite": 0,
+        "pair_nonfinite": 0,
+        "baseline_max_abs_finite": 35867.85535630489,
+        "pair_max_abs_finite": 35867.85535630489,
+        "max_absolute_difference_finite": 0.0
+      },
+      "8000": {
+        "baseline_nonfinite": 0,
+        "pair_nonfinite": 0,
+        "baseline_max_abs_finite": 34637.22165319059,
+        "pair_max_abs_finite": 34637.22165319059,
+        "max_absolute_difference_finite": 0.0
+      }
+    },
+    "double_values": 196608,
+    "bitwise_different_values": 0,
+    "max_absolute_difference": 0.0,
+    "bitwise_equal": true
+  },
+  "88200_api_probe": {
+    "rate": 88200,
+    "frames": 10240,
+    "tone_hz": 440,
+    "normalized_amplitude": 0.2,
+    "exit_code": -6,
+    "diagnostic": "gain_analysis.c:599:20: runtime error: nan is outside the range of representable values of type 'int'\nSUMMARY: UndefinedBehaviorSanitizer: undefined-behavior gain_analysis.c:599:20 \n"
+  }
+}
