@@ -1,4 +1,4 @@
-ReplayGain for wave files, v1.4.3
+ReplayGain for wave files, v1.4.4
 
 WaveGain is an application of the ReplayGain algorithms to standard PCM wave
 files. Calculated gain adjustments are applied directly to the audio data,
@@ -194,7 +194,7 @@ Documentation (from wavegain --help)
 -------------------------------------------------------------------------------
 Generated from doc/help.json; run make docs after editing.
 
-WaveGain v1.4.3
+WaveGain v1.4.4
  Usage: wavegain [options] input.wav [...] (also .w64)
 
  OPTIONS
