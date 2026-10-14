@@ -686,8 +686,10 @@ int wav_open(FILE *in, wavegain_opt *opt,
 		fprintf(stderr, "Warning: Failed to find data chunk in reading WAV header\n");
 		return 0; /* EOF */
 	}
+	/* Validate the unsigned 64-bit size before it becomes a signed offset;
+	 * anything beyond INT64_MAX is treated as "past the end of the file". */
 	if (rf64 && len == 0xffffffff)
-		len = (Int64_t)rf64_data;
+		len = rf64_data > (Uint64_t)INT64_MAX ? INT64_MAX : (Int64_t)rf64_data;
 
 	/* A data size of 0xFFFFFFFF marks a WAV whose size was never written (a
 	 * pipe) or that outgrew 32-bit sizes (an "oversized" WAV over 4 GiB). Read
@@ -697,7 +699,7 @@ int wav_open(FILE *in, wavegain_opt *opt,
 		if (here >= 0 && !FSEEK64(in, 0, SEEK_END))
 			end = FTELL64(in);
 		if (end >= here && here >= 0) {
-			if (here + len > end) {
+			if (len > end - here) {
 				if (len != 0xffffffff)
 					fprintf(stderr, "Warning: WAV data chunk extends past the end of the file;"
 					                " reading to the end.\n");
@@ -707,6 +709,12 @@ int wav_open(FILE *in, wavegain_opt *opt,
 				len = end - here;
 		}
 		FSEEK64(in, here, SEEK_SET);
+	}
+	/* Keep data start + length representable even if the file size is unknown. */
+	{
+		const Int64_t here = FTELL64(in);
+		if (here >= 0 && len > INT64_MAX - here)
+			len = INT64_MAX - here;
 	}
 
 	if (opt->apply_gain) {
@@ -1035,13 +1043,15 @@ static void put_le(unsigned char *p, Uint64_t n, int bytes)
 }
 
 /* Reserve a JUNK chunk right after "WAVE" that can become ds64 when the
- * output exceeds 4 GiB (EBU Tech 3306). A header that already has one (for
- * example from RF64 input) is kept as it is. */
+ * output exceeds 4 GiB (EBU Tech 3306). finish_rf64 writes a 28-byte ds64 in
+ * place, so only a JUNK chunk of exactly 28 bytes (for example from RF64
+ * input) is reused; any other size would break the following chunk boundary,
+ * so a new placeholder is inserted in front of it instead. */
 static int reserve_ds64(wavegain_opt *opt)
 {
 	unsigned char *grown;
 	if (opt->header_size >= 48 && !memcmp(opt->header + 12, "JUNK", 4) &&
-	    READ_U32_LE(opt->header + 16) >= 28)
+	    READ_U32_LE(opt->header + 16) == 28)
 		return 1;
 	if (!opt->header || opt->header_size < 12 ||
 	    (grown = malloc((size_t)opt->header_size + 36)) == NULL)
