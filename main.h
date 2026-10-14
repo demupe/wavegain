@@ -47,6 +47,7 @@ typedef struct settings
     int write_chunk;              /**< Write a 'gain' chunk containing the scalefactor applied to the wave data */
     int force;                    /**< Force a file to be re-replaygained when 'gain' chunk present */
     int undo;                     /**< Read the value in the 'gain' chunk and re-scale the data */
+    int rf64;                     /**< Write RF64 instead of 0xFFFFFFFF sizes for WAV output over 4 GiB */
     int set_album_gain;           /**< Don't apply the calculated album gain if set */
     int fast;                     /**< Use the fast routines for RG analysis */
     int std_out;                  /**< Write output file to stdout */

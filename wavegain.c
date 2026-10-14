@@ -313,6 +313,7 @@ int write_gains(const char *filename, double radio_gain, double audiophile_gain,
 	}
 	wg_opts->apply_gain = 1;
 	wg_opts->write_chunk = settings->write_chunk;
+	wg_opts->rf64 = settings->rf64;
 
 	/*
 	 * Now, we need to select an input audio format

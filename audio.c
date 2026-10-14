@@ -591,8 +591,8 @@ int wav_id(unsigned char *buf, int len)
 
 	if (len < 12) return 0; /* Something screwed up */
 
-	if (memcmp(buf, "RIFF", 4))
-		return 0; /* Not wave */
+	if (memcmp(buf, "RIFF", 4) && memcmp(buf, "RF64", 4))
+		return 0; /* Not wave (RF64 is RIFF with 64-bit sizes in ds64) */
 
 	if (memcmp(buf + 8, "WAVE",4))
 		return 0; /* RIFF, but not wave */
@@ -601,19 +601,33 @@ int wav_id(unsigned char *buf, int len)
 }
 
 int wav_open(FILE *in, wavegain_opt *opt,
-             unsigned char *oldbuf __attribute__((unused)),
+             unsigned char *oldbuf,
              int buflen __attribute__((unused)))
 {
 	unsigned char buf[81];
 	Int64_t len;
 	Int64_t current_pos;
 	size_t fmt_size;
+	const int rf64 = !memcmp(oldbuf, "RF64", 4);
+	Uint64_t rf64_data = 0;
 
 	/* Ok. At this point, we know we have a WAV file. Now we have to detect
 	 * whether we support the subtype, and we have to find the actual data
 	 * We don't (for the wav reader) need to use the buffer we used to id this
 	 * as a wav file (oldbuf)
 	 */
+
+	if (rf64) {
+		/* RF64: the first chunk, ds64, holds the 64-bit RIFF/data sizes. */
+		unsigned char ds64[24];
+		if (!find_wav_chunk(in, "ds64", &len) || len < 24 ||
+		    fread(ds64, 1, 24, in) < 24 || !seek_forward(in, len - 24)) {
+			fprintf(stderr, "Warning: Invalid ds64 chunk in RF64 header\n");
+			return 0;
+		}
+		rf64_data = (Uint64_t)READ_U32_LE(ds64 + 8) |
+		            ((Uint64_t)READ_U32_LE(ds64 + 12) << 32);
+	}
 
 	if (!find_wav_chunk(in, "fmt ", &len)) {
 		fprintf(stderr, "Warning: Failed to find fmt chunk in reading WAV header\n");
@@ -672,6 +686,28 @@ int wav_open(FILE *in, wavegain_opt *opt,
 		fprintf(stderr, "Warning: Failed to find data chunk in reading WAV header\n");
 		return 0; /* EOF */
 	}
+	if (rf64 && len == 0xffffffff)
+		len = (Int64_t)rf64_data;
+
+	/* A data size of 0xFFFFFFFF marks a WAV whose size was never written (a
+	 * pipe) or that outgrew 32-bit sizes (an "oversized" WAV over 4 GiB). Read
+	 * such data, or data claimed past the end of a truncated file, to EOF. */
+	if (!opt->std_in) {
+		Int64_t here = FTELL64(in), end = -1;
+		if (here >= 0 && !FSEEK64(in, 0, SEEK_END))
+			end = FTELL64(in);
+		if (end >= here && here >= 0) {
+			if (here + len > end) {
+				if (len != 0xffffffff)
+					fprintf(stderr, "Warning: WAV data chunk extends past the end of the file;"
+					                " reading to the end.\n");
+				len = end - here;
+			}
+			else if (!rf64 && len == 0xffffffff)
+				len = end - here;
+		}
+		FSEEK64(in, here, SEEK_SET);
+	}
 
 	if (opt->apply_gain) {
 		current_pos = FTELL64(in);
@@ -683,6 +719,15 @@ int wav_open(FILE *in, wavegain_opt *opt,
 			opt->header_size = current_pos;
 			if (fread(opt->header, 1, opt->header_size, in) < (size_t)opt->header_size)
 				fprintf(stderr, "Warning: Failed to read WAV header when applying gain\n");
+			/* Keep an RF64 header as RIFF + a JUNK placeholder: the writer
+			 * patches RIFF, and turns it back into RF64 if it exceeds 4 GiB. */
+			if (rf64 && opt->header_size >= 48 && !memcmp(opt->header + 12, "ds64", 4) &&
+			    READ_U32_LE(opt->header + 16) >= 28) {
+				memcpy(opt->header, "RIFF", 4);
+				memcpy(opt->header + 12, "JUNK", 4);
+				memset(opt->header + 20, 0, 28);
+				opt->rf64 = 1;
+			}
 		}
 		FSEEK64(in, current_pos, SEEK_SET);
 	}
@@ -983,6 +1028,55 @@ int raw_open(FILE *in, wavegain_opt *opt)
  * W A V E   O U T P U T
  */
 
+static void put_le(unsigned char *p, Uint64_t n, int bytes)
+{
+	int i;
+	for (i = 0; i < bytes; i++, n >>= 8) p[i] = (unsigned char)n;
+}
+
+/* Reserve a JUNK chunk right after "WAVE" that can become ds64 when the
+ * output exceeds 4 GiB (EBU Tech 3306). A header that already has one (for
+ * example from RF64 input) is kept as it is. */
+static int reserve_ds64(wavegain_opt *opt)
+{
+	unsigned char *grown;
+	if (opt->header_size >= 48 && !memcmp(opt->header + 12, "JUNK", 4) &&
+	    READ_U32_LE(opt->header + 16) >= 28)
+		return 1;
+	if (!opt->header || opt->header_size < 12 ||
+	    (grown = malloc((size_t)opt->header_size + 36)) == NULL)
+		return 0;
+	memcpy(grown, opt->header, 12);
+	memcpy(grown + 12, "JUNK", 4);
+	put_le(grown + 16, 28, 4);
+	memset(grown + 20, 0, 28);
+	memcpy(grown + 48, opt->header + 12, (size_t)opt->header_size - 12);
+	free(opt->header);
+	opt->header = grown;
+	opt->header_size += 36;
+	return 1;
+}
+
+/* Turn a finished RIFF file with a reserved JUNK chunk into RF64. */
+static int finish_rf64(audio_file *aufile, wavegain_opt *opt, Int64_t file_end)
+{
+	unsigned char head[8], ds64[36];
+	const Uint64_t data = aufile->samples * (opt->samplesize / 8);
+	const Uint64_t frames = data / ((Uint64_t)opt->channels * (opt->samplesize / 8));
+	memcpy(head, "RF64", 4);
+	put_le(head + 4, 0xffffffff, 4);
+	memcpy(ds64, "ds64", 4);
+	put_le(ds64 + 4, 28, 4);
+	put_le(ds64 + 8, (Uint64_t)file_end - 8, 8);
+	put_le(ds64 + 16, data, 8);
+	put_le(ds64 + 24, frames, 8);
+	put_le(ds64 + 32, 0, 4);	/* no table entries */
+	return !FSEEK64(aufile->sndfile, 0, SEEK_SET) &&
+	       fwrite(head, 1, 8, aufile->sndfile) == 8 &&
+	       !FSEEK64(aufile->sndfile, 12, SEEK_SET) &&
+	       fwrite(ds64, 1, 36, aufile->sndfile) == 36;
+}
+
 audio_file *open_output_audio_file(char *infile, wavegain_opt *opt)
 {
 	/* AIFF retains 32-bit FORM/SSND sizes even for a Wave64 source. */
@@ -991,13 +1085,17 @@ audio_file *open_output_audio_file(char *infile, wavegain_opt *opt)
 		fprintf(stderr, " Error: audio exceeds the AIFF size limit.\n");
 		return NULL;
 	}
-	/* RIFF sizes are 32-bit too: reject output that cannot fit before any work
-	 * (header, data and a possible gain chunk). The size is final-checked on close. */
-	if (!opt->is_wave64 && opt->format != WAV_FMT_AIFF && !opt->std_out &&
-	    opt->channels > 0 && opt->total_samples_per_channel >
-	    (UINT32_MAX - (Uint64_t)opt->header_size - 40) / ((Uint64_t)opt->channels * (opt->samplesize / 8))) {
-		fprintf(stderr, " Error: output exceeds the 4 GiB WAV size limit.\n");
-		return NULL;
+	/* WAV output over 4 GiB keeps 0xFFFFFFFF sizes (an "oversized" WAV that
+	 * most readers play to EOF) unless --rf64 asks for RF64 instead. */
+	if (opt->rf64 && !opt->is_wave64 && opt->format != WAV_FMT_AIFF) {
+		if (opt->std_out) {
+			fprintf(stderr, " Warning: --rf64 needs a seekable output; ignored for stdout.\n");
+			opt->rf64 = 0;
+		}
+		else if (!reserve_ds64(opt)) {
+			fprintf(stderr, " Error: unable to reserve the RF64 header.\n");
+			return NULL;
+		}
 	}
 	audio_file *aufile = calloc(1, sizeof(audio_file));
 
@@ -1109,13 +1207,20 @@ int close_audio_file( FILE *in, audio_file *aufile, wavegain_opt *opt)
 				}
 				FSEEK64(aufile->sndfile, 0, SEEK_END);
 				pos = FTELL64 (aufile->sndfile);
-				if (pos < 8 || (Uint64_t)(pos - 8) > UINT32_MAX) {
-					fprintf(stderr, " Error: output exceeds the 4 GiB WAV size limit.\n");
+				if (pos < 8) {
 					ok = 0;
 					break;
 				}
 				FSEEK64(aufile->sndfile, 0, SEEK_SET);
 				write_wav_header(aufile, opt, pos - 8);
+				if ((Uint64_t)(pos - 8) > UINT32_MAX) {
+					if (opt->rf64) {
+						if (!finish_rf64(aufile, opt, pos)) ok = 0;
+					}
+					else
+						fprintf(stderr, " Warning: output exceeds 4 GiB; WAV sizes are set to"
+						                " 0xFFFFFFFF (use --rf64 to write RF64).\n");
+				}
 				break;
 			}
 		}
@@ -1149,7 +1254,7 @@ int write_wav_header(audio_file *aufile, wavegain_opt *opt, Int64_t file_size)
 	unsigned long bytespersec  = opt->channels * opt->rate * opt->samplesize / 8;
 	unsigned short align       = opt->channels * opt->samplesize / 8;
 	unsigned short samplesize  = opt->samplesize;
-	unsigned long size         = file_size;	
+	unsigned long size         = file_size > 0xffffffff ? 0xffffffff : (unsigned long)file_size;
 	unsigned long data_size    = aufile->samples * (opt->samplesize / 8) < 0xffffffff ?
 					aufile->samples * (opt->samplesize / 8) : 0xffffffff;	
 

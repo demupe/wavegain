@@ -351,6 +351,7 @@ static const struct option long_options[] = {
 	{"write",	0, NULL, 'w'},
 	{"force",	0, NULL,  0 },
 	{"undo-gain",	0, NULL,  0 },
+	{"rf64",	0, NULL,  0 },
 	{"fast",	0, NULL, 's'},
 	{"stdout",	0, NULL, 'o'},
 #ifdef ENABLE_RECURSIVE
@@ -416,6 +417,9 @@ int main(int argc, char** argv)
 				}
 				else if (!strcmp(long_options[option_index].name, "undo-gain")) {
 					settings.undo = 1;
+				}
+				else if (!strcmp(long_options[option_index].name, "rf64")) {
+					settings.rf64 = 1;
 				}
 				else {
 					fprintf(stderr, "Internal error parsing command line options\n");

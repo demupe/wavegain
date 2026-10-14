@@ -164,19 +164,133 @@ static void check_buffer_reuse_and_errors(void)
     fclose(out.sndfile);
 }
 
-/* A 3 GiB 16-bit source converted to 32-bit cannot fit the RIFF size fields. */
-static void check_riff_size_limit(void)
+/* Canonical 44-byte RIFF/WAVE header: 16-bit stereo 44.1 kHz. */
+static void wav_header(unsigned char *h, uint32_t riff, uint32_t data)
 {
+    memcpy(h, "RIFF", 4);
+    WRITE_U32(h + 4, riff);
+    memcpy(h + 8, "WAVEfmt ", 8);
+    WRITE_U32(h + 16, 16);
+    WRITE_U16(h + 20, 1);
+    WRITE_U16(h + 22, 2);
+    WRITE_U32(h + 24, 44100);
+    WRITE_U32(h + 28, 176400);
+    WRITE_U16(h + 32, 4);
+    WRITE_U16(h + 34, 16);
+    memcpy(h + 36, "data", 4);
+    WRITE_U32(h + 40, data);
+}
+
+static Uint64_t read_u64(const unsigned char *p)
+{
+    return (Uint64_t)READ_U32_LE(p) | ((Uint64_t)READ_U32_LE(p + 4) << 32);
+}
+
+/* 0xFFFFFFFF sizes (a WAV written to a pipe) are read to the end of file. */
+static void check_piped_input(void)
+{
+    unsigned char header[44], audio[4000] = {0};
     wavegain_opt opt = {0};
-    char name[] = "riff_limit_XXXXXX";
-    opt.channels = 2;
-    opt.samplesize = 32;
-    opt.header_size = 44;
-    opt.format = WAV_FMT_32BIT;
-    opt.total_samples_per_channel = 3ULL * 1024 * 1024 * 1024 / 4;
-    assert(open_output_audio_file(name, &opt) == NULL);
-    /* Rejected before the temporary file is created (mkstemp keeps XXXXXX). */
-    assert(!strcmp(name, "riff_limit_XXXXXX"));
+    FILE *in = tmpfile();
+    assert(in);
+    wav_header(header, 0xffffffff, 0xffffffff);
+    assert(fwrite(header, 1, 44, in) == 44 && fwrite(audio, 1, 4000, in) == 4000);
+    rewind(in);
+    opt.apply_gain = 1;
+    assert(open_audio_file(in, &opt));
+    assert(opt.total_samples_per_channel == 1000);
+    assert(current_pos_t == 44 + 4000); /* no unscaled audio left as a "trailing chunk" */
+    wav_close(opt.readdata);
+    free(opt.header);
+    fclose(in);
+}
+
+/* RF64 input: ds64 gives the data size, and the kept header becomes RIFF+JUNK. */
+static void check_rf64_input(void)
+{
+    unsigned char head[12], ds64[36] = {0}, fmt[44], audio[4000] = {0}, list[12] = "LIST";
+    wavegain_opt opt = {0};
+    FILE *in = tmpfile();
+    assert(in);
+    memcpy(head, "RF64", 4);
+    WRITE_U32(head + 4, 0xffffffff);
+    memcpy(head + 8, "WAVE", 4);
+    memcpy(ds64, "ds64", 4);
+    WRITE_U32(ds64 + 4, 28);
+    WRITE_U32(ds64 + 16, 4000); /* dataSize64; the LIST chunk follows the data */
+    wav_header(fmt, 0, 0xffffffff);
+    WRITE_U32(list + 4, 4);
+    assert(fwrite(head, 1, 12, in) == 12 && fwrite(ds64, 1, 36, in) == 36);
+    assert(fwrite(fmt + 12, 1, 32, in) == 32); /* fmt chunk + data header */
+    assert(fwrite(audio, 1, 4000, in) == 4000 && fwrite(list, 1, 12, in) == 12);
+    rewind(in);
+    opt.apply_gain = 1;
+    assert(open_audio_file(in, &opt));
+    assert(opt.total_samples_per_channel == 1000);
+    assert(current_pos_t == 12 + 36 + 32 + 4000);
+    assert(opt.rf64 && !memcmp(opt.header, "RIFF", 4) && !memcmp(opt.header + 12, "JUNK", 4));
+    wav_close(opt.readdata);
+    free(opt.header);
+    fclose(in);
+}
+
+/* WAV output over 4 GiB is written, not rejected: by default with 0xFFFFFFFF
+ * sizes (as earlier releases did), and as RF64 with --rf64. Both read back. */
+static void check_large_output(int rf64)
+{
+    const Uint64_t bytes = 4608ULL * 1024 * 1024; /* 4.5 GiB of 16-bit stereo */
+    unsigned char header[80];
+    char name[] = "test/large_out_XXXXXX";
+    wavegain_opt *opt = calloc(1, sizeof(*opt)), back = {0};
+    audio_file *out;
+    FILE *in = tmpfile(), *file;
+    Int64_t data_offset, length;
+    assert(opt && in);
+    opt->header = malloc(44);
+    assert(opt->header);
+    wav_header(opt->header, 36, 0);
+    opt->header_size = 44;
+    opt->channels = 2;
+    opt->samplesize = 16;
+    opt->rate = 44100;
+    opt->format = WAV_FMT_16BIT;
+    opt->total_samples_per_channel = bytes / 4;
+    opt->rf64 = rf64;
+    out = open_output_audio_file(name, opt);
+    assert(out);
+    data_offset = opt->header_size; /* 80 with the reserved JUNK chunk */
+    assert(data_offset == (rf64 ? 80 : 44));
+    assert(FSEEK64(out->sndfile, data_offset + (Int64_t)bytes - 1, SEEK_SET) == 0);
+    assert(fputc(0, out->sndfile) != EOF);
+    out->samples = bytes / 2;
+    current_pos_t = 0; /* the empty input has no trailing chunks to copy */
+    assert(close_audio_file(in, out, opt) == 1);
+    fclose(in);
+
+    file = fopen(name, "rb");
+    assert(file);
+    assert(FSEEK64(file, 0, SEEK_END) == 0);
+    length = FTELL64(file);
+    assert(length == data_offset + (Int64_t)bytes);
+    rewind(file);
+    assert(fread(header, 1, sizeof(header), file) == sizeof(header));
+    assert(READ_U32_LE(header + 4) == 0xffffffff);
+    assert(READ_U32_LE(header + data_offset - 4) == 0xffffffff);
+    if (rf64) {
+        assert(!memcmp(header, "RF64", 4) && !memcmp(header + 12, "ds64", 4));
+        assert(READ_U32_LE(header + 16) == 28);
+        assert(read_u64(header + 20) == (Uint64_t)length - 8);
+        assert(read_u64(header + 28) == bytes);
+        assert(read_u64(header + 36) == bytes / 4);
+    } else {
+        assert(!memcmp(header, "RIFF", 4));
+    }
+    rewind(file);
+    assert(open_audio_file(file, &back));
+    assert(back.total_samples_per_channel == bytes / 4);
+    wav_close(back.readdata);
+    fclose(file);
+    assert(remove(name) == 0);
 }
 
 int main(void)
@@ -187,7 +301,10 @@ int main(void)
     check_float_encoding();
     check_buffer_reuse_and_errors();
     check_large_wav();
-    check_riff_size_limit();
-    puts("PCM, IEEE float, reusable buffers/error handling, gain, sparse 3 GiB WAV and RIFF size limit tests passed");
+    check_piped_input();
+    check_rf64_input();
+    check_large_output(0);
+    check_large_output(1);
+    puts("PCM, IEEE float, reusable buffers/error handling, gain, sparse 3 GiB WAV, piped/RF64 input and sparse 4.5 GiB oversized/RF64 output tests passed");
     return 0;
 }

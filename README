@@ -72,11 +72,12 @@ $ make && sudo make install prefix=/usr # to install to /usr/bin/wavegain
 
 The default build uses the compiler's native architecture (including 64-bit).
 PCM samples use fixed-width 32-bit storage, and POSIX builds enable 64-bit file
-offsets. Files larger than 2 GiB are supported within the standard RIFF/WAV
-32-bit chunk-size limits (approximately 4 GiB). Sony Wave64 (.w64) input and output are also supported, with 64-bit chunk
+offsets, so WAV files larger than 2 GiB and 4 GiB are processed in full.
+WAV files whose sizes are 0xFFFFFFFF (written to a pipe, or "oversized" WAV
+over 4 GiB) are read to the end of the file. RF64 input is supported.
+Sony Wave64 (.w64) input and output are also supported, with 64-bit chunk
 sizes and sample counts. Wave64 input is detected by its GUIDs and remains
 Wave64 when gain is applied, including when -b changes the PCM format.
-RF64 is not supported.
 
 To explicitly request a 32-bit build on an x86 toolchain, use:
 
@@ -103,13 +104,18 @@ accepted with a warning, like the WAV reader; stdin input stays strict.
 The WaveGain gain extension uses a private GUID
 (e217d848-96be-4ac0-b56a-8b46289c71e0), containing a little-endian IEEE double.
 Files must contain a format chunk before a single audio data chunk; compressed
-codecs and RF64 remain unsupported. -b 6 explicitly selects AIFF output and
+codecs remain unsupported. -b 6 explicitly selects AIFF output and
 retains that format's 32-bit size limit. No WAV-to-Wave64 conversion option is
 provided; use an external converter to create the initial .w64 file.
 
-WAV output that would exceed the 4 GiB RIFF limit (for example a large 16-bit
-file converted with -b 4) is rejected before processing, and the original
-file is kept unchanged.
+WAV output over 4 GiB, which RIFF's 32-bit sizes cannot describe, is written
+as before with its RIFF and data sizes set to 0xFFFFFFFF (an "oversized" WAV
+that most tools read to the end of the file), with a warning. With --rf64 such
+output is written as EBU RF64 instead: a JUNK chunk is reserved after the
+header and becomes the ds64 chunk with 64-bit sizes only when the output
+exceeds 4 GiB, so smaller output stays a plain RIFF/WAV file. --rf64 needs a
+seekable output and is ignored with --stdout. RF64 input is rewritten the same
+way, so it stays RF64 when it is still over 4 GiB.
 
 `make check` includes sparse 5 GiB Wave64 input/output, padding, metadata,
 PCM/float, extensible format, gain and malformed-size regressions. Optional
@@ -210,6 +216,9 @@ WaveGain v1.4.0
                    value to reverse the previously applied gain. This will NOT
                    recreate a bit identical version of the original file, but
                    it will be rescaled to the original level.
+      --rf64       Write RF64 when WAV output exceeds 4 GiB. Without it,
+                   such output keeps 0xFFFFFFFF sizes (an "oversized" WAV,
+                   read to the end by most tools), as earlier versions did.
 [Builds with recursive/pattern support]
   -z, --recursive  Search for files recursively, each folder as an album
   -l, --log        Write log file.(Default filename = WGLog.txt)
@@ -259,7 +268,9 @@ WaveGain v1.4.0
   11025Hz or 8000Hz.
   16 bit integer 'aiff' files are also supported.
   Use '-' for stdin (calculation only). Wave64 input remains Wave64
-  when gain or a PCM format change is applied. RF64 is not supported.
+  when gain or a PCM format change is applied. RF64 input is supported.
+  WAV files with 0xFFFFFFFF sizes (written to a pipe, or over 4 GiB) are
+  read to the end of the file.
 [Builds with recursive/pattern support]
   Quote wildcard patterns so the shell passes them to WaveGain:
       wavegain '*.wav'
