@@ -1,11 +1,11 @@
 <!doctype html>
 <html lang="en"><meta charset="utf-8">
-<title>WaveGain 1.4.0</title>
+<title>WaveGain 1.4.1</title>
 <style>body{max-width:76em;margin:2em auto;padding:0 1em;font:16px system-ui}pre{white-space:pre-wrap}</style>
-<h1>WaveGain 1.4.0</h1>
+<h1>WaveGain 1.4.1</h1>
 <p>ReplayGain adjusts the audio samples. Applying gain and undoing it are lossy.</p>
 <p>Generated from doc/help.json. <a href="legacy-notes.txt">Historical manual notes</a>.</p>
-<pre>WaveGain v1.4.0
+<pre>WaveGain v1.4.1
  Usage: wavegain [options] input.wav [...] (also .w64)
 
  OPTIONS
@@ -36,6 +36,9 @@
                    value to reverse the previously applied gain. This will NOT
                    recreate a bit identical version of the original file, but
                    it will be rescaled to the original level.
+      --rf64       Write RF64 when WAV output exceeds 4 GiB. Without it,
+                   such output keeps 0xFFFFFFFF sizes (an &quot;oversized&quot; WAV,
+                   read to the end by most tools), as earlier versions did.
 [Builds with recursive/pattern support]
   -z, --recursive  Search for files recursively, each folder as an album
   -l, --log        Write log file.(Default filename = WGLog.txt)
@@ -85,7 +88,9 @@
   11025Hz or 8000Hz.
   16 bit integer &#x27;aiff&#x27; files are also supported.
   Use &#x27;-&#x27; for stdin (calculation only). Wave64 input remains Wave64
-  when gain or a PCM format change is applied. RF64 is not supported.
+  when gain or a PCM format change is applied. RF64 input is supported.
+  WAV files with 0xFFFFFFFF sizes (written to a pipe, or over 4 GiB) are
+  read to the end of the file.
 [Builds with recursive/pattern support]
   Quote wildcard patterns so the shell passes them to WaveGain:
       wavegain &#x27;*.wav&#x27;

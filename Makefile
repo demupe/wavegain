@@ -84,6 +84,7 @@ check-filters:
 check-interop: $(TARGET)
 	python3 test/wave64_interop.py
 	python3 test/filter_interop.py
+	python3 test/riff_interop.py
 
 clean:
 	rm -f $(TARGET) test/portability test/wave64

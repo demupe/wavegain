@@ -2,7 +2,7 @@
 #define MAIN_H
 
 /* Some version numbers */
-#define WAVEGAIN_VERSION "1.4.0"
+#define WAVEGAIN_VERSION "1.4.1"
 
 #define BUFFER_LEN  16384
 #define LOG_NAME "WGLog.txt"
@@ -47,6 +47,7 @@ typedef struct settings
     int write_chunk;              /**< Write a 'gain' chunk containing the scalefactor applied to the wave data */
     int force;                    /**< Force a file to be re-replaygained when 'gain' chunk present */
     int undo;                     /**< Read the value in the 'gain' chunk and re-scale the data */
+    int rf64;                     /**< Write RF64 instead of 0xFFFFFFFF sizes for WAV output over 4 GiB */
     int set_album_gain;           /**< Don't apply the calculated album gain if set */
     int fast;                     /**< Use the fast routines for RG analysis */
     int std_out;                  /**< Write output file to stdout */

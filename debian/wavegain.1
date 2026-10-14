@@ -1,10 +1,10 @@
 .\" Generated from doc/help.json; do not edit.
-.TH WAVEGAIN 1 "October 14, 2026" "WaveGain 1.4.0"
+.TH WAVEGAIN 1 "October 14, 2026" "WaveGain 1.4.1"
 .SH NAME
 wavegain \- apply ReplayGain to PCM WAV and Sony Wave64 audio
 .SH DESCRIPTION
 .nf
-WaveGain v1.4.0
+WaveGain v1.4.1
  Usage: wavegain [options] input.wav [...] (also .w64)
 
  OPTIONS
@@ -35,6 +35,9 @@ WaveGain v1.4.0
                    value to reverse the previously applied gain. This will NOT
                    recreate a bit identical version of the original file, but
                    it will be rescaled to the original level.
+      \-\-rf64       Write RF64 when WAV output exceeds 4 GiB. Without it,
+                   such output keeps 0xFFFFFFFF sizes (an "oversized" WAV,
+                   read to the end by most tools), as earlier versions did.
 [Builds with recursive/pattern support]
   \-z, \-\-recursive  Search for files recursively, each folder as an album
   \-l, \-\-log        Write log file.(Default filename = WGLog.txt)
@@ -84,7 +87,9 @@ WaveGain v1.4.0
   11025Hz or 8000Hz.
   16 bit integer 'aiff' files are also supported.
   Use '\-' for stdin (calculation only). Wave64 input remains Wave64
-  when gain or a PCM format change is applied. RF64 is not supported.
+  when gain or a PCM format change is applied. RF64 input is supported.
+  WAV files with 0xFFFFFFFF sizes (written to a pipe, or over 4 GiB) are
+  read to the end of the file.
 [Builds with recursive/pattern support]
   Quote wildcard patterns so the shell passes them to WaveGain:
       wavegain '*.wav'

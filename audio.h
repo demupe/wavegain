@@ -75,6 +75,7 @@ typedef struct
 	int write_chunk;
 	int force;
 	int undo;
+	int rf64;		/* write RF64 when RIFF output exceeds 4 GiB */
 	int header_size;
 	unsigned char *header;
 
