@@ -992,6 +992,14 @@ audio_file *open_output_audio_file(char *infile, wavegain_opt *opt)
 		fprintf(stderr, " Error: audio exceeds the AIFF size limit.\n");
 		return NULL;
 	}
+	/* RIFF sizes are 32-bit too: reject output that cannot fit before any work
+	 * (header, data and a possible gain chunk). The size is final-checked on close. */
+	if (!opt->is_wave64 && opt->format != WAV_FMT_AIFF && !opt->std_out &&
+	    opt->channels > 0 && opt->total_samples_per_channel >
+	    (UINT32_MAX - (Uint64_t)opt->header_size - 40) / ((Uint64_t)opt->channels * (opt->samplesize / 8))) {
+		fprintf(stderr, " Error: output exceeds the 4 GiB WAV size limit.\n");
+		return NULL;
+	}
 	audio_file *aufile = calloc(1, sizeof(audio_file));
 
 	if (!aufile) return NULL;
@@ -1102,6 +1110,11 @@ int close_audio_file( FILE *in, audio_file *aufile, wavegain_opt *opt)
 				}
 				FSEEK64(aufile->sndfile, 0, SEEK_END);
 				pos = FTELL64 (aufile->sndfile);
+				if (pos < 8 || (Uint64_t)(pos - 8) > UINT32_MAX) {
+					fprintf(stderr, " Error: output exceeds the 4 GiB WAV size limit.\n");
+					ok = 0;
+					break;
+				}
 				FSEEK64(aufile->sndfile, 0, SEEK_SET);
 				write_wav_header(aufile, opt, pos - 8);
 				break;

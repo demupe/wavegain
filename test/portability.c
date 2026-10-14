@@ -165,6 +165,21 @@ static void check_buffer_reuse_and_errors(void)
     fclose(out.sndfile);
 }
 
+/* A 3 GiB 16-bit source converted to 32-bit cannot fit the RIFF size fields. */
+static void check_riff_size_limit(void)
+{
+    wavegain_opt opt = {0};
+    char name[] = "riff_limit_XXXXXX";
+    opt.channels = 2;
+    opt.samplesize = 32;
+    opt.header_size = 44;
+    opt.format = WAV_FMT_32BIT;
+    opt.total_samples_per_channel = 3ULL * 1024 * 1024 * 1024 / 4;
+    assert(open_output_audio_file(name, &opt) == NULL);
+    /* Rejected before the temporary file is created (mkstemp keeps XXXXXX). */
+    assert(!strcmp(name, "riff_limit_XXXXXX"));
+}
+
 int main(void)
 {
     check_pcm(WAV_FMT_24BIT, 3);
@@ -173,6 +188,7 @@ int main(void)
     check_float_encoding();
     check_buffer_reuse_and_errors();
     check_large_wav();
-    puts("PCM, IEEE float, reusable buffers/error handling, gain, and sparse 3 GiB WAV tests passed");
+    check_riff_size_limit();
+    puts("PCM, IEEE float, reusable buffers/error handling, gain, sparse 3 GiB WAV and RIFF size limit tests passed");
     return 0;
 }
