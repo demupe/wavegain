@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: LGPL-2.0-or-later */
 /* WaveGain - Filename: AUDIO.C
  *
  * Function: Essentially provides all the wave input and output routines.
@@ -570,6 +571,7 @@ int aiff_open(FILE *in, wavegain_opt *opt, unsigned char *buf,
 		aiff->channels = format.channels;
 		aiff->samplesize = format.samplesize;
 		aiff->totalsamples = format.totalframes;
+		aiff->data_start = FTELL64(in) + format.offset;
 
 		opt->readdata = (void *)aiff;
 
@@ -810,12 +812,13 @@ long wav_read(void *in, double **buffer, int samples, int fast, Int64_t chunk)
 	long realsamples;
 
 	if (fast) {
+		if (!f->bounded) chunk -= f->data_start;
 		chunk /= (sampbyte * f->channels);
 		chunk *= (sampbyte * f->channels);
-		if (f->bounded) {
-			chunk += f->data_start;
-			f->samplesread = (chunk - f->data_start) / (f->samplesize / 8 * f->channels);
-		}
+		if (!f->bounded) chunk += f->data_start;
+		if (f->bounded) chunk += f->data_start;
+		f->samplesread = chunk >= f->data_start ?
+		    (chunk - f->data_start) / (f->samplesize / 8 * f->channels) : 0;
 		if (FSEEK64(f->f, chunk, SEEK_SET)) return -1;
 	}
 
@@ -919,12 +922,13 @@ long wav_ieee_read(void *in, double **buffer, int samples, int fast, Int64_t chu
 	long realsamples;
 
 	if (fast) {
-		chunk /= (sizeof(float) * f->channels);
-		chunk *= (sizeof(float) * f->channels);
-		if (f->bounded) {
-			chunk += f->data_start;
-			f->samplesread = (chunk - f->data_start) / (f->samplesize / 8 * f->channels);
-		}
+		if (!f->bounded) chunk -= f->data_start;
+		chunk /= (4 * f->channels);
+		chunk *= (4 * f->channels);
+		if (!f->bounded) chunk += f->data_start;
+		if (f->bounded) chunk += f->data_start;
+		f->samplesread = chunk >= f->data_start ?
+		    (chunk - f->data_start) / (f->samplesize / 8 * f->channels) : 0;
 		if (FSEEK64(f->f, chunk, SEEK_SET)) return -1;
 	}
 

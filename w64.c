@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: LGPL-2.1-or-later */
 /* Sony Wave64 container support. PCM codecs are shared with the WAV reader.
  * Sizes include the 24-byte chunk header; padding is excluded from sizes.
  * Reference: Sony/VCS Wave64 specification, and FFmpeg libavformat/w64.c.

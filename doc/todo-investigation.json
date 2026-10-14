@@ -1,0 +1,209 @@
+{
+  "platform": "Darwin",
+  "architecture": "arm64",
+  "source_commit": "8b224d3d2e8210a2c2fcb10240cb6e2bc7ae34ce",
+  "note": "Generated fixtures only; rounded display values are not exact internal scales.",
+  "progress": {
+    "0.5s_44100Hz": {
+      "file": {
+        "last": "inf",
+        "max_finite": null,
+        "nonfinite": [
+          "inf"
+        ]
+      },
+      "all_files": {
+        "last": "100",
+        "max_finite": 100.0,
+        "nonfinite": []
+      },
+      "reports": 3
+    },
+    "4.5s_44100Hz": {
+      "file": {
+        "last": "112",
+        "max_finite": 112.0,
+        "nonfinite": []
+      },
+      "all_files": {
+        "last": "100",
+        "max_finite": 100.0,
+        "nonfinite": []
+      },
+      "reports": 6
+    },
+    "mixed_8000_48000Hz_4.5s_each": {
+      "file": {
+        "last": "113",
+        "max_finite": 113.0,
+        "nonfinite": []
+      },
+      "all_files": {
+        "last": "171",
+        "max_finite": 171.0,
+        "nonfinite": []
+      },
+      "reports": 9
+    }
+  },
+  "gain_dc": {
+    "fixture": {
+      "rate": 44100,
+      "frames": 44100,
+      "channels": 2,
+      "sample_bits": 16,
+      "baseline": 0.3,
+      "sine_amplitude": 0.01,
+      "negative_pulse": -0.55,
+      "pulse_frames": [
+        0,
+        22050
+      ],
+      "mean_pcm": 9828.840725623582,
+      "raw_peak_normalized": 0.54998779296875,
+      "post_dc_peak_normalized": 0.8499402076911493
+    },
+    "default": {
+      "flags": [],
+      "recommendation": {
+        "gain_db": 5.19,
+        "input_peak": 18021.0,
+        "displayed_scale": 1.82,
+        "displayed_new_peak": 32765.0
+      },
+      "pre_limiter_peak_estimate_from_displayed_gain": 1.5448573187587071,
+      "output": {
+        "min": -32768,
+        "max": 598,
+        "rail_samples": 4
+      }
+    },
+    "gain12": {
+      "flags": [
+        "-g",
+        "12"
+      ],
+      "recommendation": {
+        "gain_db": 5.19,
+        "input_peak": 18021.0,
+        "displayed_scale": 1.82,
+        "displayed_new_peak": 32765.0
+      },
+      "pre_limiter_peak_estimate_from_displayed_gain": 1.5448573187587071,
+      "output": {
+        "min": -32768,
+        "max": 598,
+        "rail_samples": 4
+      }
+    },
+    "gain12_no_offset": {
+      "flags": [
+        "-g",
+        "12",
+        "-p"
+      ],
+      "recommendation": {
+        "gain_db": 5.19,
+        "input_peak": 18021.0,
+        "displayed_scale": 1.82,
+        "displayed_new_peak": 32765.0
+      },
+      "pre_limiter_peak_estimate_from_displayed_gain": 0.9996616932663906,
+      "output": {
+        "min": -32766,
+        "max": 18468,
+        "rail_samples": 0
+      }
+    },
+    "gain12_noclip": {
+      "flags": [
+        "-g",
+        "12",
+        "-n"
+      ],
+      "recommendation": {
+        "gain_db": 29.68,
+        "input_peak": 18021.0,
+        "displayed_scale": 30.48,
+        "displayed_new_peak": 549275.0
+      },
+      "pre_limiter_peak_estimate_from_displayed_gain": 25.90528500505221,
+      "output": {
+        "min": -32768,
+        "max": 10032,
+        "rail_samples": 4
+      }
+    },
+    "gain12_limiter": {
+      "flags": [
+        "-g",
+        "12",
+        "-t"
+      ],
+      "recommendation": {
+        "gain_db": 5.19,
+        "input_peak": 18021.0,
+        "displayed_scale": 1.82,
+        "displayed_new_peak": 32765.0
+      },
+      "pre_limiter_peak_estimate_from_displayed_gain": 1.5448573187587071,
+      "output": {
+        "min": -32275,
+        "max": 598,
+        "rail_samples": 0
+      }
+    },
+    "gain12_noclip_limiter": {
+      "flags": [
+        "-g",
+        "12",
+        "-n",
+        "-t"
+      ],
+      "recommendation": {
+        "gain_db": 29.68,
+        "input_peak": 18021.0,
+        "displayed_scale": 30.48,
+        "displayed_new_peak": 549275.0
+      },
+      "pre_limiter_peak_estimate_from_displayed_gain": 25.90528500505221,
+      "output": {
+        "min": -32768,
+        "max": 10032,
+        "rail_samples": 4
+      }
+    },
+    "album_gain12_adc": {
+      "flags": [
+        "-a",
+        "-q",
+        "-g",
+        "12"
+      ],
+      "recommendation": {
+        "gain_db": 5.19,
+        "input_peak": 18021.0,
+        "displayed_scale": 1.82,
+        "displayed_new_peak": 32765.0
+      },
+      "pre_limiter_peak_estimate_from_displayed_gain": 1.5448573187587071,
+      "output": {
+        "min": -32768,
+        "max": 598,
+        "rail_samples": 4
+      }
+    }
+  },
+  "manual_gain_without_cap": {
+    "base_db": -0.83,
+    "plus6_db": 5.17,
+    "delta_db": 6.0
+  },
+  "help_wildcards": {
+    "literal_quoted_glob_finds_file": true,
+    "copyright_is_before_usage": true,
+    "WAVE64_in_help": true,
+    "WAVE64_in_man": false,
+    "WAVE64_in_html": false
+  }
+}

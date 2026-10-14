@@ -1,3 +1,4 @@
+/* License provenance: see doc/license-notices.txt; original notices retained. */
 /*
  * function: ReplayGain support for Wave files (http://www.replaygain.org)
  *
@@ -47,7 +48,6 @@
 int	      write_to_log = 0;
 char          log_file_name[MAX_PATH];
 extern double total_samples;
-extern double total_files;
 
 /**
  * \brief Allocate a FILE_LIST node.
@@ -161,11 +161,8 @@ const char* ftos(double f, const char* format)
 int process_files(FILE_LIST* file_list, SETTINGS* settings, const char* dir __attribute__((unused)))
 {
 	FILE_LIST* file;
-	double     factor_clip,
-	           audiophile_gain = 0.,
-	           Gain,
-	           scale,
-	           dB,
+	double     audiophile_gain = 0.,
+	           scale = 1.,
 	           album_dc_offset[2] = {0., 0.};
 
 	settings->album_peak = NO_PEAK;
@@ -174,10 +171,14 @@ int process_files(FILE_LIST* file_list, SETTINGS* settings, const char* dir __at
 		return 0;
 
 	settings->first_file = 1;
+	total_samples = 0.;
 
 	/* Undo previously applied gain */
-	if (settings->undo) {
-		for (file = file_list; file; file = file->next_file) {
+    settings->progress_total = settings->progress_done = 0.;
+    if (settings->undo) {
+        for (file = file_list; file; file = file->next_file)
+            if (file->filename) settings->progress_total += audio_duration(file->filename, settings);
+        for (file = file_list; file; file = file->next_file) {
 			if (file->filename == NULL)
 				continue;
 			if (!write_gains(file->filename, 0, 0, 0, 0, 0, settings)) {
@@ -189,26 +190,33 @@ int process_files(FILE_LIST* file_list, SETTINGS* settings, const char* dir __at
 	else {
 		/* Analyze the files */
 		for (file = file_list; file; file = file->next_file) {
-			int dc_l;
-			int dc_r;
 			if (file->filename == NULL)
 				continue;
 
 			if (!get_gain(file->filename, &file->track_peak, &file->track_gain,
-			              file->dc_offset, file->offset, settings)) {
+			              file->dc_offset, file->offset, settings, file)) {
+				free((void *)file->filename);
 				file->filename = NULL;
 				continue;
 			}
-			dc_l = (int)(file->dc_offset[0] * 32768 * -1);
-			dc_r = (int)(file->dc_offset[1] * 32768 * -1);
-			if (dc_l < -1 || dc_l > 1 || dc_r < -1 || dc_r > 1)
-				settings->need_to_process = 1;
+
 			album_dc_offset[0] += file->offset[0];
 			album_dc_offset[1] += file->offset[1];
 		}
 
-		album_dc_offset[0] /= total_samples;
-		album_dc_offset[1] /= total_samples;
+        if (settings->first_file) return 0; /* All inputs were skipped or empty. */
+        if (total_samples > 0.) {
+            album_dc_offset[0] /= total_samples;
+            album_dc_offset[1] /= total_samples;
+        }
+        settings->album_peak = 0.;
+        for (file = file_list; file; file = file->next_file) {
+            const double *dc;
+            if (!file->filename) continue;
+            dc = settings->adc ? album_dc_offset : file->dc_offset;
+            report_gain(file, dc, settings);
+            settings->album_peak = fmax(settings->album_peak, corrected_peak(file, dc, settings));
+        }
 
 		if (!settings->no_offset && settings->adc) {
 			int dc_l = (int)(album_dc_offset[0] * 32768 * -1);
@@ -225,59 +233,40 @@ int process_files(FILE_LIST* file_list, SETTINGS* settings, const char* dir __at
 		if(write_to_log)
 			write_log("\n");
 
-		if (settings->audiophile) {
-			Gain = GetAlbumGain() + settings->man_gain;
-			scale = pow(10., Gain * 0.05);
-			settings->set_album_gain = 0;
-			if(settings->clip_prev) {
-				factor_clip  = (32767./( settings->album_peak + 1));
-				if(scale < factor_clip)
-					factor_clip = 1.0;
-				else
-					factor_clip /= scale;
-				scale *= factor_clip;
-			}
-			if (settings->scale) {
-				fprintf(stdout, "%8.6lf", scale);
-			}
+        if (settings->audiophile) {
+            audiophile_gain = selected_gain(GetAlbumGain(), settings->album_peak, settings);
+            scale = pow(10., audiophile_gain * .05);
+            if (settings->scale) fprintf(stdout, "%8.6lf", scale);
+            fprintf(stderr, " Recommended Album Gain: %+6.2f dB\tScale: %6.4f\n\n", audiophile_gain, scale);
+            if (write_to_log) write_log(" Recommended Album Gain: %+6.2f dB\tScale: %6.4f\n\n", audiophile_gain, scale);
+        }
 
-			if (scale > 0.0)
-				dB = 20. * log10(scale);
-			else
-				dB = 0.0;
-			audiophile_gain = dB;
-			if (audiophile_gain < 0.1 && audiophile_gain > -0.1 && !settings->need_to_process) {
-				fprintf(stderr, " No Album Gain adjustment or DC Offset correction required, exiting.\n");
-				if(write_to_log)
-					write_log(" No Album Gain adjustment or DC Offset correction required, exiting.\n");
-				settings->set_album_gain = 1;
-			}
-			else {
-				fprintf(stderr, " Recommended Album Gain: %+6.2f dB\tScale: %6.4f\n\n", audiophile_gain, scale);
-				if(write_to_log)
-					write_log(" Recommended Album Gain: %+6.2f dB\tScale: %6.4f\n\n", audiophile_gain, scale);
-			}
-		}
-
-		if(settings->apply_gain) {	/* Write radio and audiophile gains. */
-			total_files = 0.0;
-			for (file = file_list; file; file = file->next_file) {
-				if (file->filename == NULL)
-					continue;
-				if (settings->audiophile && settings->set_album_gain == 1)
-					break;
-				if (settings->radio && (file->track_gain < 0.1 && file->track_gain > -0.1) && !settings->need_to_process) {
-					fprintf(stderr, " No Title Gain adjustment or DC Offset correction required for file: %s, skipping.\n", file->filename);
-					if(write_to_log)
-						write_log(" No Title Gain adjustment or DC Offset correction required for file: %s, skipping.\n", file->filename);
-				}
-				else if (!write_gains(file->filename, file->track_gain,	audiophile_gain, file->track_peak, 
-						      file->dc_offset, album_dc_offset, settings)) {
-						fprintf(stderr, " Error processing GAIN for file - %s\n", file->filename);
-						continue;
-				}
-			}
-		}
+        if (settings->apply_gain) {
+            settings->progress_total = settings->progress_done = 0.;
+            for (file = file_list; file; file = file->next_file) {
+                const double *dc;
+                double gain;
+                int correction;
+                if (!file->filename) continue;
+                dc = settings->adc ? album_dc_offset : file->dc_offset;
+                gain = settings->audiophile ? audiophile_gain : file->track_gain;
+                correction = !settings->no_offset &&
+                    (fabs(dc[0]) > 1. / 32768. || fabs(dc[1]) > 1. / 32768.);
+                file->apply = settings->need_to_process || settings->force || settings->limiter ||
+                              fabs(gain) >= .1 || correction;
+                if (file->apply) settings->progress_total += file->duration;
+            }
+            for (file = file_list; file; file = file->next_file) {
+                if (!file->filename) continue;
+                if (!file->apply) {
+                    fprintf(stderr, " No Gain adjustment or DC correction required for file: %s, skipping.\n", file->filename);
+                    continue;
+                }
+                if (!write_gains(file->filename, file->track_gain, audiophile_gain, file->track_peak,
+                                 file->dc_offset, album_dc_offset, settings))
+                    fprintf(stderr, " Error processing GAIN for file - %s\n", file->filename);
+            }
+        }
 	}
 
 	fprintf(stderr, "\n WaveGain Processing completed normally\n");
@@ -346,94 +335,8 @@ int process_files(FILE_LIST* file_list, SETTINGS* settings, const char* dir __at
  */
 static void usage(void)
 {
-	fprintf(stdout, _("WaveGain v" WAVEGAIN_VERSION " Compiled " __DATE__ ".\n"));
-	fprintf(stdout, _("Copyright (c) 2002-2010 John Edwards <john.edwards33@ntlworld.com>\n"));
-	fprintf(stdout, _("Additional code by Magnus Holmgren, Gian-Carlo Pascutto, and Tycho\n\n"));
-#ifdef _WIN32
-	fprintf(stdout, " Usage: wavegain [options] input.wav [...] [-e cmd [args]]\n\n");
-#else
-	fprintf(stdout, " Usage: wavegain [options] input.wav [...]\n\n");
-#endif
-	fprintf(stdout, " OPTIONS\n");
-	fprintf(stdout, "  -h, --help       Prints this help information.\n");
-	fprintf(stdout, "  -a, --album      Use ReplayGain Audiophile/Album gain setting, or\n");
-	fprintf(stdout, "  -r, --radio      Use ReplayGain Radio/Single Track gain setting(DEFAULT).\n");
-	fprintf(stdout, "  -q, --adc        Apply Album based DC Offset correction.\n");
-	fprintf(stdout, "                   DEFAULT is Track based DC Offset correction.\n");
-	fprintf(stdout, "  -p, --no_offset  Do NOT apply DC Offset correction.\n");
-	fprintf(stdout, "  -c, --calculate  Calculates and prints gain settings, and DC Offsets BUT\n");
-	fprintf(stdout, "                   DOES NOT APPLY THEM - This is the DEFAULT.\n");
-	fprintf(stdout, "  -x, --scale      Writes scale values to stdout in the format: n.nnnnnn\n");
-	fprintf(stdout, "                   In Album mode it only writes the Album Scale value, and\n");
-	fprintf(stdout, "                   in Title mode it only writes the Title Scale values.\n");
-	fprintf(stdout, "                   ONLY works in Calculation mode.\n");
-	fprintf(stdout, "  -y, --apply      Calculates and APPLIES gain settings, and applies\n");
-	fprintf(stdout, "                   DC Offset correction.\n");
-	fprintf(stdout, "  -w, --write      Writes a 'gain' chunk into the Wave Header.\n");
-	fprintf(stdout, "                   Stores the scalefactor applied to the wave data as a\n");
-	fprintf(stdout, "                   double floating point number. Only written when gain\n");
-	fprintf(stdout, "                   is applied. Presence will result in file being skipped\n");
-	fprintf(stdout, "                   if reprocessed.\n");
-	fprintf(stdout, "                   (Unless '--force' or '--undo-gain' are specified.)\n");
-	fprintf(stdout, "      --force      Forces the reprocessing of a file that contains a 'gain'\n");
-	fprintf(stdout, "                   chunk and will result in the new scalefactor overwriting\n");
-	fprintf(stdout, "                   the existing value.\n");
-	fprintf(stdout, "      --undo-gain  Reads the scalefactor in the 'gain' chunk and uses the\n");
-	fprintf(stdout, "                   value to reverse the previously applied gain. This will NOT\n");
-	fprintf(stdout, "                   recreate a bit identical version of the original file, but\n");
-	fprintf(stdout, "                   it will be rescaled to the original level.\n");
-#ifdef ENABLE_RECURSIVE
-	fprintf(stdout, "  -z, --recursive  Search for files recursively, each folder as an album\n");
-#endif
-	fprintf(stdout, "  -l, --log        Write log file.(Default filename = WGLog.txt)\n");
-	fprintf(stdout, "  -f, --logfile    Specify log filename. (Assumes -l if present.)\n");
-	fprintf(stdout, "  -n, --noclip     NO Clipping Prevention.\n");
-	fprintf(stdout, "  -d, --dither X   Dither output, where X =\n");
-	fprintf(stdout, "               0   for       dither OFF (default).\n");
-	fprintf(stdout, "               1   for       dither without Noise Shaping.\n");
-	fprintf(stdout, "               2   for       dither with Light Noise Shaping.\n");
-	fprintf(stdout, "               3   for       dither with Medium Noise Shaping.\n");
-	fprintf(stdout, "               4   for       dither with Heavy Noise Shaping.\n");
-	fprintf(stdout, "  -t, --limiter    Apply 6dB Hard Limiter to output.\n");
-	fprintf(stdout, "  -g, --gain X     Apply additional Manual Gain adjustment in decibels, where\n");
-	fprintf(stdout, "             X = any floating point number between -20.0 and +12.0.\n");
-	fprintf(stdout, "                   Clipping Prevention WILL be applied UNLESS '-n' is used.\n");
-	fprintf(stdout, "  -s, --fast       Calculates and prints gain settings - DOES NOT APPLY THEM.\n");
-	fprintf(stdout, "                   NOTE: This method does NOT process all samples, it only\n");
-	fprintf(stdout, "                         processes 200 x 16k chunks of samples. Results will\n");
-	fprintf(stdout, "                         NOT be as accurate as a full analysis but, with most\n");
-	fprintf(stdout, "                         material, will be within +/- 0.5db. Files of 8,192,000\n");
-	fprintf(stdout, "                         real samples, or less, will be analysed in full.\n");
-	fprintf(stdout, "                         DC Offset is neither calculated nor corrected in\n");
-	fprintf(stdout, "                         FAST mode.\n");
-	fprintf(stdout, "  -o, --stdout     Write output file to stdout.\n");
-	fprintf(stdout, " FORMAT OPTIONS (One option ONLY may be used)\n");
-	fprintf(stdout, "  -b, --bits X     Set output sample format, where X =\n");
-	fprintf(stdout, "             1     for        8 bit unsigned PCM data.\n");
-	fprintf(stdout, "             2     for       16 bit signed PCM data.\n");
-	fprintf(stdout, "             3     for       24 bit signed PCM data.\n");
-	fprintf(stdout, "             4     for       32 bit signed PCM data.\n");
-	fprintf(stdout, "             5     for       32 bit floats.\n");
-	fprintf(stdout, "             6     for       16 bit 'aiff' format.\n");
-	fprintf(stdout, "         NOTE:     By default, the output file will be of the same bitwidth\n");
-	fprintf(stdout, "                   and type as the input file.\n");
-#ifdef _WIN32
-	fprintf(stdout, "  -e, --exec Cmd   Execute a command after wavegain.\n");
-	fprintf(stdout, "                   The following environment variables are available:\n");
-	fprintf(stdout, "                   INPUT_FILE, INPUT_FDIR, INPUT_RDIR, INPUT_NAME,\n");
-	fprintf(stdout, "                   TRACK_GAIN, TRACK_PEAK, TRACK_SCALE, TRACK_NEW_PEAK,\n");
-	fprintf(stdout, "                   ALBUM_GAIN, ALBUM_PEAK, ALBUM_SCALE, ALBUM_NEW_PEAK,\n");
-	fprintf(stdout, "                   DC_OFFSET_L, DC_OFFSET_R\n");
-#endif
-	fprintf(stdout, " INPUT FILES\n");
-	fprintf(stdout, "  WaveGain input files may be 8, 16, 24 or 32 bit integer, or floating point\n"); 
-	fprintf(stdout, "  WAV or Sony Wave64 files with 1 or 2 channels and a sample rate of 96000Hz, 88200Hz,\n");
-	fprintf(stdout, "  64000Hz, 48000Hz, 44100Hz, 32000Hz, 24000Hz, 22050Hz, 16000Hz, 12000Hz,\n");
-	fprintf(stdout, "  11025Hz or 8000Hz.\n");
-	fprintf(stdout, "  16 bit integer 'aiff' files are also supported.\n");
-	fprintf(stdout, "  Wildcards (?, *) can be used in the filename, or '-' for stdin.\n");
-
-    return;
+    fprintf(stdout, _("WaveGain v" WAVEGAIN_VERSION " Compiled " __DATE__ ".\n"));
+#include "help_generated.h"
 }
 
 
@@ -686,6 +589,10 @@ int main(int argc, char** argv)
 #endif
 		}
 	}
+	if (settings.fast) {
+		settings.apply_gain = 0;
+		settings.no_offset = 1;
+	}
 	if (settings.undo == 1) {
 		settings.write_chunk = 0;
 		settings.no_offset = 1;
@@ -705,12 +612,12 @@ int main(int argc, char** argv)
 	}
 
 	if (!strcmp(argv[optind], "-")) {
-		double track_peak, track_gain;
-		double dc_offset[2] = {0};
-		double offset[2] = {0};
-		if (!get_gain("-", &track_peak, &track_gain,
-		              dc_offset, offset, &settings))
+		FILE_LIST info = {0};
+		info.filename = "-";
+		if (!get_gain("-", &info.track_peak, &info.track_gain,
+		              info.dc_offset, info.offset, &settings, &info))
 			return EXIT_FAILURE;
+		report_gain(&info, info.dc_offset, &settings);
 		return EXIT_SUCCESS;
 	}
 	else {

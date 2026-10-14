@@ -35,11 +35,11 @@ release: clean $(TARGET)
 # -U_FORTIFY_SOURCE: Disable FORTIFY_SOURCE, supposedly does not play well with ASAN
 # -fsanitize=address: enable ASAN
 # -fno-omit-frame-pointer: recommended to generate better stack traces on debugging
-# -static-libasan: needed on some platforms to avoid run-time errors without using LD_PRELOAD
-asan: CFLAGS += -g3 -O2 -U_FORTIFY_SOURCE -fsanitize=address -fno-omit-frame-pointer -static-libasan
+#: needed on some platforms to avoid run-time errors without using LD_PRELOAD
+asan: CFLAGS += -g3 -O2 -U_FORTIFY_SOURCE -fsanitize=address -fno-omit-frame-pointer
 asan: clean $(TARGET)
 
-$(TARGET): $(SOURCES) $(HEADERS)
+$(TARGET): $(SOURCES) $(HEADERS) help_generated.h
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEFS) -o $(TARGET) $(SOURCES) $(LIBS)
 
 install: $(TARGET)
@@ -48,12 +48,19 @@ install: $(TARGET)
 uninstall:
 	rm -f $(DESTDIR)$(bindir)/$(TARGET)
 
-check:
+check: $(TARGET) check-docs
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEFS) -UNDEBUG -o test/portability test/portability.c w64.c $(LIBS)
 	./test/portability
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEFS) -UNDEBUG -o test/wave64 test/wave64.c $(LIBS)
 	./test/wave64
 	$(RM) test/portability test/wave64
+	python3 test/todo_regressions.py
+
+docs:
+	python3 tools/generate_help.py
+
+check-docs:
+	python3 tools/generate_help.py --check
 
 check-interop: $(TARGET)
 	python3 test/wave64_interop.py
@@ -63,4 +70,4 @@ clean:
 
 distclean: clean
 
-.PHONY : all debug release asan install uninstall clean distclean check check-interop
+.PHONY : all debug release asan install uninstall clean distclean check check-interop docs check-docs

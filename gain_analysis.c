@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: LGPL-2.1-or-later */
 /*
  *  ReplayGainAnalysis - analyzes input samples and give the recommended dB change
  *  Copyright (C) 2001-2009 David Robinson and Glen Sawyer

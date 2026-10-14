@@ -1,12 +1,42 @@
-- Investigate why 64-bit executable corrupt some test files by chopping audio and
-    changing its pitch. Original windows binary was 32 bits, and to prevent this bug
-    so is this build, forcedly by using GCC's -m32 flag. Proof-reading is required to
-    see what triggers the bug in 64-bits binaries and, to hopefully allow for a non-buggy
-    native AMD64 build in the future.
-- Bugfix: percentages sometimes show > 100% done
-- Bugfix: investigate calculated RG gain when --gain and DC correction is used,
-   also how these are affected by --limiter, --noclip, etc
-- Fix --help linux issues (copyright at bottom, * ? as Wildcard)
-   if possible, make it convertable to nroff (man page) and/or html (manual),
-   so the 3 are always in sync
-- Standard license/copyright headers in all sources
+Implementation follow-up: 2026-10-14 (base commit 8b224d3).
+Details: doc/todo-fixes.txt
+Historical investigation: doc/todo-investigation.txt / .json
+Current probe results: doc/todo-fixed.json
+Reproduce: make check; make check-interop (requires FFmpeg)
+
+- [DONE] Native 64-bit audio corruption / forced -m32 build.
+    Fixed in 8b224d3: fixed-width PCM, portable lrint, native builds,
+    large-file offsets and fast-mode positions. PCM and large-file checks
+    cover the fix, including sparse Wave64 input/output above 4 GiB.
+
+- [DONE] Percentages sometimes show > 100% done (or inf%).
+    Progress uses processed frames per file and planned per-file durations
+    overall. Short/fractional durations, mixed sample rates, skipped files,
+    Undo and empty audio are covered. Successful writes finish at 100%.
+
+- [DONE] ReplayGain / manual gain / DC correction / clipping.
+    Channel extrema and actual frame counts determine peaks after the
+    selected track/album DC correction. Gain caps use corrected peaks;
+    album caps are selected after all track means are known. Manual gain
+    is added once. The limiter retains its existing cap unless --noclip
+    is used. New Peak is documented as the pre-limiter prediction.
+    Regression coverage includes asymmetric PCM/float, distinct album
+    means, manual gain, no-offset, limiter and unshaped dither.
+
+- [DONE] --help layout, wildcard instructions, man/HTML sync.
+    doc/help.json generates CLI text, README help, nroff and HTML via
+    make docs. make check-docs rejects stale files and undocumented options.
+    Build/platform conditions, Wave64, byte-based fast thresholds, quoting,
+    case sensitivity and peak/limiter semantics are retained or clarified.
+    Runtime checks covered macOS arm64/x86_64; Linux/Windows runtime checks
+    remain useful portability follow-ups.
+
+- [PARTIAL] Standard license/copyright headers.
+    Explicit original grants have SPDX comments with existing attribution
+    preserved. Library GPL v2 text and correct references are bundled;
+    Debian's GPL-3 wording typo is fixed. See doc/license-notices.txt.
+    Remaining: resolve upstream "GNU General Public License, version 2.1"
+    notices in main.c, wavegain.c, misc.c and recurse.c, and file-specific
+    grants absent from their companion/configuration headers. No unsupported
+    license replacement or author attribution was made. Original release
+    licensing evidence or rights-holder clarification is still required.

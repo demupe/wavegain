@@ -122,11 +122,12 @@ WaveGain is Copyright (c) 2002-2010 John Edwards <john.edwards33@ntlworld.com>,
 a.k.a. John33, and several other co-authors and contributors are mentioned as
 Copyright owners in the source files.
 
-Originally released as LGPL-2.1 or later, although some source code simply says
-GPL, and some others some says GPL2+. Despite this, the project as a whole
-should be regarded as LGPL-2.1+, as per COPYING file. To avoid further confusion
-in the future, I suggest source files be standartized with a common header and
-re-licensed, preferably as GPL-3 or later (not LGPL).
+COPYING contains the GNU Lesser General Public License v2.1. Explicit
+file-specific license grants and author notices are retained in the sources.
+Known grants have SPDX identifiers; ambiguous upstream notices are tracked in
+doc/license-notices.txt. The GNU Library GPL v2 text is also bundled under
+LICENSES/ for files that reference that version. No blanket replacement of
+upstream license grants was made.
 
 I claim no copyright over the C source code, including patches I made.
 
@@ -136,11 +137,10 @@ Copyright (c) 2012 Rodrigo Silva (MestreLion)
 
 Documentation (from wavegain --help)
 -------------------------------------------------------------------------------
+Generated from doc/help.json; run make docs after editing.
 
-Copyright (c) 2002-2010 John Edwards <john.edwards33@ntlworld.com>
-Additional code by Magnus Holmgren, Gian-Carlo Pascutto, and Tycho
-
- Usage: wavegain [options] input.wav [...]
+WaveGain v1.3.2
+ Usage: wavegain [options] input.wav [...] (also .w64)
 
  OPTIONS
   -h, --help       Prints this help information.
@@ -170,26 +170,28 @@ Additional code by Magnus Holmgren, Gian-Carlo Pascutto, and Tycho
                    value to reverse the previously applied gain. This will NOT
                    recreate a bit identical version of the original file, but
                    it will be rescaled to the original level.
+[Builds with recursive/pattern support]
   -z, --recursive  Search for files recursively, each folder as an album
   -l, --log        Write log file.(Default filename = WGLog.txt)
   -f, --logfile    Specify log filename. (Assumes -l if present.)
-  -n, --noclip     NO Clipping Prevention.
+  -n, --noclip     Disable gain prevention; PCM output still obeys its sample limits.
   -d, --dither X   Dither output, where X =
                0   for       dither OFF (default).
                1   for       dither without Noise Shaping.
                2   for       dither with Light Noise Shaping.
                3   for       dither with Medium Noise Shaping.
                4   for       dither with Heavy Noise Shaping.
-  -t, --limiter    Apply 6dB Hard Limiter to output.
+  -t, --limiter    Apply a smooth tanh limiter above half full scale (-6dB).
   -g, --gain X     Apply additional Manual Gain adjustment in decibels, where
              X = any floating point number between -20.0 and +12.0.
                    Clipping Prevention WILL be applied UNLESS '-n' is used.
   -s, --fast       Calculates and prints gain settings - DOES NOT APPLY THEM.
                    NOTE: This method does NOT process all samples, it only
-                         processes 200 x 16k chunks of samples. Results will
+                         processes up to 200 blocks of 16,384 frames (one sample
+                         per channel). Results will
                          NOT be as accurate as a full analysis but, with most
-                         material, will be within +/- 0.5db. Files of 8,192,000
-                         real samples, or less, will be analysed in full.
+                         material, will be within +/- 0.5db. Audio data of
+                         8,192,000 bytes or less is analysed in full.
                          DC Offset is neither calculated nor corrected in
                          FAST mode.
   -o, --stdout     Write output file to stdout.
@@ -203,13 +205,32 @@ Additional code by Magnus Holmgren, Gian-Carlo Pascutto, and Tycho
              6     for       16 bit 'aiff' format.
          NOTE:     By default, the output file will be of the same bitwidth
                    and type as the input file.
+[Windows builds only]
+  -e, --exec Cmd   Execute a command after wavegain.
+                   The following environment variables are available:
+                   INPUT_FILE, INPUT_FDIR, INPUT_RDIR, INPUT_NAME,
+                   TRACK_GAIN, TRACK_PEAK, TRACK_SCALE, TRACK_NEW_PEAK,
+                   ALBUM_GAIN, ALBUM_PEAK, ALBUM_SCALE, ALBUM_NEW_PEAK,
+                   DC_OFFSET_L, DC_OFFSET_R
  INPUT FILES
   WaveGain input files may be 8, 16, 24 or 32 bit integer, or floating point
   WAV or Sony Wave64 files with 1 or 2 channels and a sample rate of 96000Hz, 88200Hz,
   64000Hz, 48000Hz, 44100Hz, 32000Hz, 24000Hz, 22050Hz, 16000Hz, 12000Hz,
   11025Hz or 8000Hz.
   16 bit integer 'aiff' files are also supported.
-  Wildcards (?, *) can be used in the filename, or '-' for stdin.
+  Use '-' for stdin (calculation only). Wave64 input remains Wave64
+  when gain or a PCM format change is applied. RF64 is not supported.
+[Builds with recursive/pattern support]
+  Quote wildcard patterns so the shell passes them to WaveGain:
+      wavegain '*.wav'
+  Matching is case sensitive on POSIX and case insensitive on Windows.
 
+ PEAK AND GAIN
+  Peak is measured after the selected DC correction. New Peak predicts
+  the scaled peak BEFORE limiting, dithering and output quantization.
+  Manual gain is added once, then capped unless --noclip is used.
+  --limiter does not remove this cap; combine with --noclip to bypass it.
 
-wavegain-1.3.2
+Copyright (c) 2002-2010 John Edwards <john.edwards33@ntlworld.com>
+Additional code by Magnus Holmgren, Gian-Carlo Pascutto, and Tycho
+Documentation originally by Rodrigo Silva.

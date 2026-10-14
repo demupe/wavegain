@@ -1,0 +1,39 @@
+WaveGain file-level license notices
+==================================
+The SPDX comments added to files with explicit grants summarize their existing
+notices. Original author/contributor notices remain intact. This cleanup does
+not assign a new license to old files whose notices are ambiguous.
+
+GNU Library GPL version 2 or later (LGPL-2.0-or-later):
+  audio.c, audio.h, getopt.c, getopt1.c, getopt.h.
+GNU Library GPL version 2, without an explicit later-version option in header
+(LGPL-2.0-only): dither.c, dither.h.
+GNU Lesser GPL version 2.1 or later (LGPL-2.1-or-later):
+  gain_analysis.c, gain_analysis.h.
+
+License texts:
+  LICENSES/LGPL-2.0-only.txt contains GNU Library GPL v2, obtained verbatim from
+  https://github.com/spdx/license-list-data/blob/main/text/LGPL-2.0-only.txt
+  COPYING contains GNU Lesser GPL v2.1.
+Missing LICENSE.LGPL / COPYING.LIB references in the explicitly v2 notices now
+point to the bundled v2 text. The or-later option in the original grants is
+preserved; filenames do not narrow those grants.
+
+The new w64.c, C regression probes and Python tools/tests use LGPL-2.1-or-later,
+as identified in their own headers. The generated help reflects inherited CLI
+text; its attribution comes from doc/help.json and its original notices remain
+recorded below. Old documentation authors and FSF attributions are preserved.
+
+Unresolved upstream notices:
+  main.c, wavegain.c, misc.c and recurse.c say "GNU General Public License,
+  version 2.1". The same wording is in earliest import a0de6d1. COPYING and
+  debian/copyright instead describe upstream as LGPL-2.1+. No original grant
+  resolving this discrepancy was found. Their text is retained without an
+  assumed SPDX replacement.
+  main.h, misc.h, recurse.h, wavegain.h, config.h and i18n.h have no explicit
+  upstream header grant. Their new provenance comments point here instead of
+  inventing a license identifier or author attribution.
+
+The remaining task is to obtain the original release's licensing statement or
+an authoritative clarification for these files, then standardize their SPDX
+and copyright headers. Package-level metadata alone is not treated as proof.

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: LGPL-2.1-or-later
 """Optional independent Wave64 checks using FFmpeg and ffprobe."""
 import json
 import pathlib
