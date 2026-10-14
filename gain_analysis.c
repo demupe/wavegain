@@ -237,9 +237,24 @@ static const Float_t ABButter[12][2*BUTTER_ORDER + 1] = {
 // If your compiler complains that "'operation on 'output' may be undefined", you can
 // either ignore the warnings or uncomment the three "y" lines (and comment out the indicated line)
 
+/* The filters are evaluated without FP contraction (no fused multiply-add), so
+ * every compiler and ISA rounds each product and sum exactly as written. This
+ * makes the scalar and paired stereo paths bitwise identical by definition.
+ * GCC keeps per-function optimize options through LTO; Clang uses a block pragma. */
+#if defined(__clang__)
+# define FILTER_NO_CONTRACT _Pragma("clang fp contract(off)")
+#else
+# define FILTER_NO_CONTRACT
+#endif
+#if defined(__GNUC__) && !defined(__clang__)
+# pragma GCC push_options
+# pragma GCC optimize ("fp-contract=off")
+#endif
+
 static void
 filterYule(const Float_t* input, Float_t* output, size_t nSamples, const Float_t* kernel)
 {
+    FILTER_NO_CONTRACT
 #ifdef HAVE_SSE2
 
     __m128d __kernel, __result, __temp;
@@ -319,7 +334,8 @@ filterYule(const Float_t* input, Float_t* output, size_t nSamples, const Float_t
 
 static void
 filterButter(const Float_t* input, Float_t* output, size_t nSamples, const Float_t* kernel)
-{   
+{
+    FILTER_NO_CONTRACT
 #ifdef HAVE_SSE2
     __m128d __kernel, __result, __temp;
     __declspec(align(16)) Float_t __temp2[2];
@@ -354,23 +370,17 @@ filterButter(const Float_t* input, Float_t* output, size_t nSamples, const Float
 
 
 /* Independent stereo lanes preserve each scalar expression's operation order.
- * The loop-based prototype split the initial bias/multiply expression, changing
- * Clang's FMA contraction. Keep this unrolled expression identical to scalar.
- * Enable supported compiler/ISA combinations, including GCC 14 AVX-512 builds.
+ * Keep this unrolled expression identical to scalar; with contraction disabled
+ * above, both paths perform the same IEEE operations on every compiler.
  * Use verified-release to check bitwise equality with the exact build flags.
- * GCC on AArch64 has different scalar/vector contraction and remains scalar.
  * Define WAVEGAIN_FILTER_SIMD=0 to force the scalar reference path. */
-#if (defined(__clang__) && \
-     (defined(__aarch64__) || (defined(__x86_64__) && defined(__SSE2__)))) || \
-    (!defined(__clang__) && defined(__GNUC__) && __GNUC__ == 14 && \
-     defined(__x86_64__) && defined(__SSE2__))
+#if (defined(__clang__) || (defined(__GNUC__) && __GNUC__ >= 5)) && \
+    (defined(__aarch64__) || (defined(__x86_64__) && defined(__SSE2__)))
 # define WAVEGAIN_FILTER_PAIR_SUPPORTED 1
 #endif
 #ifndef WAVEGAIN_FILTER_SIMD
 # if defined(WAVEGAIN_FILTER_PAIR_SUPPORTED) && \
-     !defined(__FAST_MATH__) && !defined(HAVE_SSE2) && \
-     (defined(__clang__) || \
-      (defined(__AVX2__) && defined(__FMA__)))
+     !defined(__FAST_MATH__) && !defined(HAVE_SSE2)
 #  define WAVEGAIN_FILTER_SIMD 1
 # else
 #  define WAVEGAIN_FILTER_SIMD 0
@@ -388,6 +398,7 @@ filterYulePair(const Float_t *left, const Float_t *right,
                Float_t *outleft, Float_t *outright, size_t count,
                const Float_t *kernel)
 {
+    FILTER_NO_CONTRACT
     while (count--) {
         filter_pair result = 1e-10 + PAIR_AT(left, right, 0) * kernel[0]
             - PAIR_AT(outleft, outright, -1) * kernel[1]
@@ -421,6 +432,7 @@ filterButterPair(const Float_t *left, const Float_t *right,
                Float_t *outleft, Float_t *outright, size_t count,
                const Float_t *kernel)
 {
+    FILTER_NO_CONTRACT
     while (count--) {
         filter_pair result = PAIR_AT(left, right, 0) * kernel[0]
             - PAIR_AT(outleft, outright, -1) * kernel[1]
@@ -435,6 +447,11 @@ filterButterPair(const Float_t *left, const Float_t *right,
 
 #undef PAIR_AT
 #endif
+
+#if defined(__GNUC__) && !defined(__clang__)
+# pragma GCC pop_options
+#endif
+#undef FILTER_NO_CONTRACT
 
 // returns a INIT_GAIN_ANALYSIS_OK if successful, INIT_GAIN_ANALYSIS_ERROR if not
 

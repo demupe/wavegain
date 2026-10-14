@@ -33,12 +33,18 @@ release: CFLAGS += -s -O2 -D_FORTIFY_SOURCE=2
 release: clean $(TARGET)
 
 # Serialize clean/build even under -j, then verify before callers install.
+# VERIFY_SIMD=auto accepts either filter backend once it matches the scalar
+# reference; 1 requires the paired SIMD backend and 0 requires scalar.
+VERIFY_SIMD ?= auto
+ifeq ($(filter auto 0 1,$(VERIFY_SIMD)),)
+$(error VERIFY_SIMD must be auto, 0 or 1)
+endif
 verified-release: override CFLAGS += -s -O2 -D_FORTIFY_SOURCE=2
 verified-release: override CPPFLAGS += -D_FILE_OFFSET_BITS=64
 verified-release:
 	$(MAKE) clean
 	$(MAKE) $(TARGET) CC="$(CC)" CPPFLAGS="$(CPPFLAGS)" CFLAGS="$(CFLAGS)" DEFS="$(DEFS)" LDFLAGS="$(LDFLAGS)"
-	python3 test/filter_regressions.py --cc "$(CC)" --cflags="$(CPPFLAGS) $(CFLAGS) $(DEFS)" --ldflags="$(LDFLAGS) $(LIBS)" --expect-simd 1 --cli "./$(TARGET)" || { $(RM) "$(TARGET)"; exit 1; }
+	python3 test/filter_regressions.py --cc "$(CC)" --cflags="$(CPPFLAGS) $(CFLAGS) $(DEFS)" --ldflags="$(LDFLAGS) $(LIBS)" $(if $(filter 0 1,$(VERIFY_SIMD)),--expect-simd $(VERIFY_SIMD)) --cli "./$(TARGET)" || { $(RM) "$(TARGET)"; exit 1; }
 
 # ASAN (Address Sanitizer) build.
 # Find some run-time errors that debug build misses.

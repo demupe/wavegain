@@ -60,39 +60,41 @@ initial 1e-10 bias, coefficient selection and per-operation binary64 precision.
 RMS accumulation, histogram construction and state movement are unchanged.
 
 The loop-based investigation prototype first calculated input * b0 and then
-added the Yule bias in another statement. That changed Clang's available FMA
-contraction relative to the scalar expression bias + input * b0, causing tiny
-feedback-state differences. The new expression matches the scalar expression
-instead of disabling contraction or changing global compiler flags. It retains
-the compiler's existing contraction policy in both scalar and vector kernels.
+added the Yule bias in another statement. Whether a compiler fused such
+multiply/add pairs (FP contraction) depended on the compiler, version, target
+ISA and even the statement layout, so scalar and vector kernels could differ.
+The four filter functions (scalar and paired Yule/Butterworth) are therefore
+compiled with contraction disabled: "#pragma GCC optimize" for GCC (kept per
+function through LTO) and "#pragma clang fp contract(off)" for Clang. MSVC does
+not contract under its default /fp:precise model. Every product and sum is then
+rounded as written, so the paired path performs exactly the same IEEE binary64
+operations as the scalar path on every compiler. The rest of the program
+(gain, dither, limiter) keeps the compiler's normal floating-point policy.
 Clang's scoped contraction controls are documented here:
 https://clang.llvm.org/docs/LanguageExtensions.html#extensions-to-specify-floating-point-flags
 
-For Clang, the paired path is enabled by default on AArch64 and x86_64 with
-SSE2, without fast-math, and without the legacy HAVE_SSE2 implementation.
-GNU GCC 14 on x86_64 now also auto-enables the paired path when AVX2 and FMA
-are enabled, including AVX-512 targets. GCC 14.2.1 Linux builds with -O2,
--march=x86-64-v3, -fPIC and LTO passed kernel/API bitwise comparisons at all
-twelve rates. Only stereo takes this path; mono and legacy HAVE_SSE2 retain
-their existing filtering paths. Other GNU versions/architectures stay scalar.
-Fast-math always disables the paired implementation, including explicit opt-in.
+The paired path is enabled by default for Clang and GCC 5 or later on AArch64
+and on x86_64 with SSE2, without fast-math, and without the legacy HAVE_SSE2
+implementation. No particular compiler version or AVX2/FMA level is required.
+Only stereo takes this path; mono and legacy HAVE_SSE2 retain their existing
+filtering paths. Fast-math always disables the paired implementation,
+including explicit opt-in.
 
-GCC 14 AVX-512 builds also auto-enable the paired path. Runtime equivalence on
-that ISA is not yet verified on this host; use make verified-release on the
-actual target CPU before installing such a build. This target verifies the
-selected SIMD backend and compares all-rate kernel/API state plus complete CLI
+Because filter contraction is now disabled, builds for FMA-capable targets
+(for example AArch64, or x86_64 with -march=x86-64-v3) can differ in the last
+bits of the filter state from earlier builds of this branch that let the
+compiler fuse operations. Results become identical across compilers and ISAs
+for the filters themselves.
+
+make verified-release compares all-rate kernel/API state plus complete CLI
 output against a scalar build using the same release/compiler/linker flags.
-Unsupported target instructions or any mismatch fail the build. It does not
-silently switch to scalar. WAVEGAIN_FILTER_SIMD=0 remains an explicit fallback;
-WAVEGAIN_FILTER_SIMD=1 cannot enable unsupported compiler families/architectures.
-
-GNU GCC 16 on AArch64 has different vector/scalar contraction even with the
-unrolled expression in the exploratory probe; it remains on the scalar path.
-This avoids imposing a different floating-point policy on unrelated gain/dither
-code. Additional GCC
-versions/targets require their own operation/rounding checks and regression tests.
-Floating-point states can still differ between architectures/compilers as they
-did before: equality is checked within each build, not across different builds.
+Unsupported target instructions (for example AVX-512 code on a CPU without
+AVX-512) or any mismatch fail the build and remove the binary. VERIFY_SIMD
+selects the backend requirement: auto (default) accepts either backend once it
+matches the scalar reference, 1 requires the paired SIMD backend and never
+accepts a scalar fallback, and 0 requires scalar. WAVEGAIN_FILTER_SIMD=0
+remains an explicit scalar build; WAVEGAIN_FILTER_SIMD=1 cannot enable
+unsupported compiler families/architectures.
 
 Correctness validation
 ----------------------
@@ -157,12 +159,12 @@ python3 tools/benchmark_conversion.py --ref 3fe2589 --seconds 60 --repeats 5 \
     --variants baseline,working_tree --output /tmp/filter-performance.json
 python3 test/filter_interop.py --output /tmp/filter-88200-interop.json
 
-For GCC 14 x86_64, verify automatic selection with:
-python3 test/filter_regressions.py --cc gcc-14 \
-    --cflags='-O2 -fPIC -flto -march=x86-64-v3' --expect-simd 1
+Verify automatic selection for a compiler and flag set with, for example:
+python3 test/filter_regressions.py --cc gcc \
+    --cflags='-O2 -fPIC -flto -march=x86-64-v3' --ldflags='-flto -lm' --expect-simd 1
 Use --expect-simd 1 with the actual build flags on a compatible CPU. The
 expectation fails at compile time if the paired path is unavailable, so comparing two scalar runs cannot silently certify SIMD.
-Build and verify together: make verified-release CC=gcc-14 \
+Build and verify together: make verified-release CC=gcc VERIFY_SIMD=1 \
     CFLAGS='-O2 -fPIC -flto -march=x86-64-v4' LDFLAGS='-flto'
 This also checks the built CLI's output against a scalar CLI for 44.1/48/88.2
 kHz, mono/stereo and with/without DC correction (twelve conversion cases).

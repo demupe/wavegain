@@ -43,9 +43,11 @@ Reproduce: make check; make check-interop (requires FFmpeg)
 
 Performance investigation (2026-10-14): doc/conversion-performance.txt
 - [DONE] Paired stereo ReplayGain filters: expression-preserving SIMD on
-    Clang arm64/x86_64 and GCC 14 x86_64 AVX2/FMA builds, including AVX-512.
+    Clang and GCC 5+ for AArch64 and x86_64, with FP contraction disabled in
+    the filters so scalar and paired paths are bitwise identical.
     Mono and other targets retain scalar/legacy paths.
-    Use make verified-release to require runtime equality before installation.
+    Use make verified-release (VERIFY_SIMD=auto|1|0) to require runtime
+    equality before installation.
     Kernel/API state, histogram boundaries and unaffected-rate output
     match the scalar reference bit-for-bit on tested builds. Current benchmark
     gives ~1.5x ordinary stereo conversion throughput on macOS arm64.
