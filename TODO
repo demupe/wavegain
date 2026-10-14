@@ -28,8 +28,11 @@ Reproduce: make check; make check-interop (requires FFmpeg)
     make docs. make check-docs rejects stale files and undocumented options.
     Build/platform conditions, Wave64, byte-based fast thresholds, quoting,
     case sensitivity and peak/limiter semantics are retained or clarified.
-    Runtime checks covered macOS arm64/x86_64; Linux/Windows runtime checks
-    remain useful portability follow-ups.
+    Runtime checks covered macOS arm64/x86_64 and Linux x86_64; a MinGW-w64
+    build was checked under Wine. Native Windows runtime checks remain a
+    portability follow-up.
+- [OPEN] The 'gain' chunk scale is big-endian on macOS (__APPLE__) and
+    little-endian elsewhere, so -w files are not portable across them.
 
 - [OPEN] Standard license/copyright headers in all sources.
     Deferred to a separate change: source license notices are unchanged

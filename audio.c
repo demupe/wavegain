@@ -65,7 +65,9 @@
  * _mktemp_s() requires <io.h>
  */
 FILE* fmkstemp(char *template) {
-	if (_mktemp_s(template, strlen(template)) == 0)
+	/* The size passed to _mktemp_s includes the terminating NUL; without it
+	 * the call fails with EINVAL and every in-place (-y) run failed. */
+	if (_mktemp_s(template, strlen(template) + 1) == 0)
 		return fopen(template, "wb");
 	else
 		return NULL;
@@ -133,8 +135,10 @@ input_format formats[] = {
 };
 
 #if (defined (WIN32) || defined (_WIN32))
+#ifndef __MINGW32__	/* MinGW's <stdio.h> already declares them (dllimport) */
 extern int __cdecl _fseeki64(FILE *, Int64_t, int);
 extern Int64_t __cdecl _ftelli64(FILE *);
+#endif
 
 	#define FSEEK64		_fseeki64
 	#define FTELL64		_ftelli64
