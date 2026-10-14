@@ -95,6 +95,71 @@ static int copy64(FILE *in, FILE *out, Uint64_t n)
     return 1;
 }
 
+/* Chunks rewritten on output (fact, gain) or made stale by new samples (levl
+ * peak summaries). They are never copied from the source. */
+static int dropped_chunk(const unsigned char *header)
+{
+    return chunk_is(header, "fact") || chunk_is(header, "levl") ||
+           !memcmp(header, gain64, 16);
+}
+
+/* Read the payload of a WaveGain gain chunk; a second gain chunk is invalid. */
+static int read_gain(FILE *in, wavegain_opt *opt, Uint64_t size)
+{
+    unsigned char scale[8];
+    uint64_t bits;
+    if (size != 32 || opt->gain_chunk || fread(scale, 1, 8, in) != 8) return 0;
+    bits = get64(scale);
+    memcpy(&opt->gain_scale, &bits, sizeof(bits));
+    if (!(opt->gain_scale > 0.0) || opt->gain_scale > 1e100) return 0;
+    opt->gain_chunk = 1;
+    return 1;
+}
+
+/* Walk the chunks after the data chunk. Count the bytes that are kept and, if
+ * out is not NULL, copy them. An unparseable tail is kept verbatim. */
+static int walk_trailing(FILE *in, const wavegain_opt *opt, FILE *out,
+                         Uint64_t *kept, int *saw_fact)
+{
+    Uint64_t pos = (Uint64_t)opt->data_end, end = (Uint64_t)opt->container_end, size;
+    unsigned char header[24];
+    *kept = 0;
+    if (W64_SEEK(in, opt->data_end, SEEK_SET)) return 0;
+    while (pos < end) {
+        if (!read_chunk(in, pos, end, header, &size)) {
+            if (W64_SEEK(in, (Int64_t)pos, SEEK_SET)) return 0;
+            *kept += end - pos;
+            return !out || copy64(in, out, end - pos);
+        }
+        if (saw_fact && chunk_is(header, "fact")) *saw_fact = 1;
+        if (dropped_chunk(header) || !out) {
+            if (!dropped_chunk(header)) *kept += aligned64(size);
+            if (!skip64(in, aligned64(size) - 24)) return 0;
+        } else {
+            *kept += aligned64(size);
+            if (fwrite(header, 1, 24, out) != 24 ||
+                !copy64(in, out, aligned64(size) - 24)) return 0;
+        }
+        pos += aligned64(size);
+    }
+    return 1;
+}
+
+/* A gain chunk may also follow the data chunk; honour it like a leading one. */
+static int trailing_gain(FILE *in, wavegain_opt *opt)
+{
+    Uint64_t pos = (Uint64_t)opt->data_end, end = (Uint64_t)opt->container_end, size;
+    unsigned char header[24];
+    if (W64_SEEK(in, opt->data_end, SEEK_SET)) return 0;
+    while (pos < end && read_chunk(in, pos, end, header, &size)) {
+        if (!memcmp(header, gain64, 16)) {
+            if (!read_gain(in, opt, size)) return 0;
+        } else if (!skip64(in, aligned64(size) - 24)) return 0;
+        pos += aligned64(size);
+    }
+    return !W64_SEEK(in, opt->data_start, SEEK_SET);
+}
+
 int w64_id(unsigned char *buf, int len)
 {
     return len >= 40 && !memcmp(buf, riff64, 16) && !memcmp(buf + 24, wave64, 16);
@@ -107,26 +172,37 @@ int w64_open(FILE *in, wavegain_opt *opt, unsigned char *buf, int len)
     size_t fmt_size = 0;
     if (!w64_id(buf, len)) return 0;
     end = get64(buf + 16);
-    if (end < 40 || end > (Uint64_t)INT64_MAX) goto invalid;
+    if (end < 40) goto invalid;
     if (!opt->std_in) {
-        if (W64_SEEK(in, 0, SEEK_END) || W64_TELL(in) < (Int64_t)end ||
+        Int64_t actual;
+        if (W64_SEEK(in, 0, SEEK_END) || (actual = W64_TELL(in)) < 40 ||
             W64_SEEK(in, 40, SEEK_SET)) goto invalid;
-    }
+        /* Like the WAV reader, accept files whose sizes were never finalized
+         * (for example written to a pipe) or that were cut short. */
+        if (end > (Uint64_t)actual) {
+            fprintf(stderr, "Warning: Wave64 container size exceeds the file size;"
+                            " the file may be truncated.\n");
+            end = (Uint64_t)actual;
+        }
+    } else if (end > (Uint64_t)INT64_MAX) goto invalid;
     while (pos < end) {
-        if (!read_chunk(in, pos, end, header, &size)) goto invalid;
+        if (end - pos < 24 || fread(header, 1, 24, in) != 24) goto invalid;
+        size = get64(header + 16);
+        if (chunk_is(header, "data") && !opt->std_in &&
+            (size < 24 || size > end - pos)) {
+            fprintf(stderr, "Warning: Wave64 data chunk size exceeds the file;"
+                            " reading to the end of the file.\n");
+            size = end - pos;
+        }
+        if (size < 24 || size > end - pos || size > (Uint64_t)INT64_MAX - 7 ||
+            (aligned64(size) > end - pos && !chunk_is(header, "data"))) goto invalid;
         if (chunk_is(header, "fmt ")) {
             if (fmt_size || size < 40) goto invalid;
             fmt_size = size - 24 > sizeof(fmt) ? sizeof(fmt) : (size_t)(size - 24);
             if (fread(fmt, 1, fmt_size, in) != fmt_size ||
                 !skip64(in, aligned64(size) - 24 - fmt_size)) goto invalid;
         } else if (!memcmp(header, gain64, 16)) {
-            unsigned char scale[8];
-            uint64_t bits;
-            if (size != 32 || opt->gain_chunk || fread(scale, 1, 8, in) != 8) goto invalid;
-            bits = get64(scale);
-            memcpy(&opt->gain_scale, &bits, sizeof(bits));
-            if (!(opt->gain_scale > 0.0) || opt->gain_scale > 1e100) goto invalid;
-            opt->gain_chunk = 1;
+            if (!read_gain(in, opt, size)) goto invalid;
         } else if (chunk_is(header, "data")) {
             Uint64_t payload = size - 24;
             unsigned int block;
@@ -136,13 +212,19 @@ int w64_open(FILE *in, wavegain_opt *opt, unsigned char *buf, int len)
             opt->is_wave64 = 1;
             opt->source = in;
             opt->data_start = (Int64_t)(pos + 24);
-            opt->data_end = (Int64_t)(pos + aligned64(size));
+            /* The final chunk's padding may be missing at the end of the file. */
+            opt->data_end = (Int64_t)(aligned64(size) > end - pos ? end : pos + aligned64(size));
             opt->container_end = (Int64_t)end;
             if (!setup_wav(in, opt, fmt, fmt_size, (Int64_t)payload)) goto invalid;
             /* Empty data must not fall back to counting trailing metadata. */
             opt->total_samples_per_channel = payload / block;
             ((wavfile *)opt->readdata)->totalsamples = payload / block;
             ((wavfile *)opt->readdata)->data_start = opt->data_start;
+            if (!opt->std_in && !trailing_gain(in, opt)) {
+                wav_close(opt->readdata);
+                opt->readdata = NULL;
+                goto invalid;
+            }
             return 1;
         } else if (!skip64(in, aligned64(size) - 24)) goto invalid;
         pos += aligned64(size);
@@ -190,7 +272,7 @@ int w64_write_header(audio_file *out, wavegain_opt *opt)
     if (!block || opt->total_samples_per_channel > ((Uint64_t)INT64_MAX - 7) / block)
         return 0;
     bytes = opt->total_samples_per_channel * block;
-    trailing = opt->container_end - opt->data_end;
+    if (!walk_trailing(opt->source, opt, NULL, &trailing, &have_fact)) goto done;
     for (pass = 0; pass < 2; pass++) {
         if (W64_SEEK(opt->source, 40, SEEK_SET)) goto done;
         if (pass) {
@@ -209,7 +291,7 @@ int w64_write_header(audio_file *out, wavegain_opt *opt)
                 if (!pass) header_size += 40;
                 else if (!output_fmt(out->sndfile, opt)) goto done;
                 if (!skip64(opt->source, aligned64(size) - 24)) goto done;
-            } else if (chunk_is(header, "fact") || !memcmp(header, gain64, 16)) {
+            } else if (dropped_chunk(header)) {
                 if (chunk_is(header, "fact")) have_fact = 1;
                 if (!skip64(opt->source, aligned64(size) - 24)) goto done;
             } else {
@@ -256,8 +338,9 @@ int w64_finish(FILE *in, audio_file *out, wavegain_opt *opt)
     unsigned char zero[8] = {0};
     const Uint64_t bytes = out->samples * (opt->samplesize / 8);
     const size_t pad = (8 - bytes % 8) % 8;
+    Uint64_t kept;
+    /* Copy the same trailing chunks that w64_write_header counted. */
     if (bytes != out->expected_bytes || fwrite(zero, 1, pad, out->sndfile) != pad ||
-        W64_SEEK(in, opt->data_end, SEEK_SET) ||
-        !copy64(in, out->sndfile, opt->container_end - opt->data_end)) return 0;
+        !walk_trailing(in, opt, out->sndfile, &kept, NULL)) return 0;
     return !ferror(out->sndfile);
 }
