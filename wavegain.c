@@ -150,7 +150,7 @@ int get_gain(const char *filename, double *track_peak, double *track_gain,
 	             peak = 0.,
 	             dB;
 	int          k, i;
-	long         chunk;
+	Int64_t      chunk;
 	input_format *format;
 
 	memset(wg_opts, 0, sizeof(wavegain_opt));
@@ -222,7 +222,7 @@ int get_gain(const char *filename, double *track_peak, double *track_gain,
 	else
 		total_samples += (double)wg_opts->total_samples_per_channel;
 
-	if (settings->fast && (wg_opts->total_samples_per_channel * (wg_opts->samplesize / 8)
+	if (settings->fast && ((Int64_t)wg_opts->total_samples_per_channel * (wg_opts->samplesize / 8)
 			* wg_opts->channels > 8192000)) {
 
 		long samples_read;
@@ -231,7 +231,7 @@ int get_gain(const char *filename, double *track_peak, double *track_gain,
 		for (i = 0; i < wg_opts->channels; i++)
 			buffer[i] = malloc(BUFFER_LEN * sizeof(double));
 
-		chunk = ((wg_opts->total_samples_per_channel * (wg_opts->samplesize / 8) * wg_opts->channels) + 44) / 1200;
+		chunk = (((Int64_t)wg_opts->total_samples_per_channel * (wg_opts->samplesize / 8) * wg_opts->channels) + (wg_opts->is_wave64 ? 0 : 44)) / 1200;
 
 		for(k = 100; k < 1100; k+=5) {
 
@@ -258,7 +258,7 @@ int get_gain(const char *filename, double *track_peak, double *track_gain,
 						}
 					}
 
-					if (AnalyzeSamples(buffer[0], buffer[1], samples_read,
+					if (AnalyzeSamples(buffer[0], wg_opts->channels == 2 ? buffer[1] : NULL, samples_read,
 							   wg_opts->channels) != GAIN_ANALYSIS_OK) {
 						fprintf(stderr, " Error processing samples.\n");
 						for (i = 0; i < wg_opts->channels; i++)
@@ -307,7 +307,7 @@ int get_gain(const char *filename, double *track_peak, double *track_gain,
 						}
 					}
 
-					if (AnalyzeSamples(buffer[0], buffer[1], samples_read,
+					if (AnalyzeSamples(buffer[0], wg_opts->channels == 2 ? buffer[1] : NULL, samples_read,
 							   wg_opts->channels) != GAIN_ANALYSIS_OK) {
 						fprintf(stderr, " Error processing samples.\n");
 						for (i = 0; i < wg_opts->channels; i++)
@@ -425,7 +425,7 @@ int write_gains(const char *filename, double radio_gain, double audiophile_gain,
 
 	format = open_audio_file(infile, wg_opts);
 	if (!format) {
-		format->close_func(wg_opts->readdata);
+		if (wg_opts->readdata) wav_close(wg_opts->readdata);
 		if (wg_opts)
 			free(wg_opts);
 		fclose(infile);
@@ -541,13 +541,6 @@ int write_gains(const char *filename, double radio_gain, double audiophile_gain,
 		}
 		_snprintf(tempName, tempSize, "%s%s", filename, template);
 
-		aufile = open_output_audio_file(tempName, wg_opts);
-
-		if (aufile == NULL) {
-			fprintf (stderr, " Not able to open output file %s.\n", tempName);
-			fclose(infile);
-			goto exit;
-		}
 
 		Init_Dither (wg_opts->samplesize, settings->shapingtype);
 
@@ -564,6 +557,15 @@ int write_gains(const char *filename, double radio_gain, double audiophile_gain,
 
 			scale = pow(10., Gain * 0.05);
 			wg_opts->gain_scale = scale;
+		}
+
+		aufile = open_output_audio_file(tempName, wg_opts);
+
+		if (aufile == NULL) {
+			fprintf (stderr, " Not able to open output file %s.\n", tempName);
+			fclose(infile);
+			if (!settings->std_out) remove(tempName);
+			goto exit;
 		}
 
 		fprintf(stderr, "                                             \r");
@@ -659,7 +661,12 @@ int write_gains(const char *filename, double radio_gain, double audiophile_gain,
 			if (pcm[i]) free(pcm[i]);
 		if (pcm) free(pcm);
 		format->close_func(wg_opts->readdata);
-		close_audio_file(infile, aufile, wg_opts);
+		if (!close_audio_file(infile, aufile, wg_opts)) {
+			fclose(infile);
+			if (!settings->std_out) remove(tempName);
+			fprintf(stderr, " Error finalizing output; original file preserved.\n");
+			goto exit;
+		}
 		fclose(infile);
 
 		if (!settings->std_out) {

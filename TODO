@@ -3,9 +3,6 @@
     so is this build, forcedly by using GCC's -m32 flag. Proof-reading is required to
     see what triggers the bug in 64-bits binaries and, to hopefully allow for a non-buggy
     native AMD64 build in the future.
-- Consider generating a 32-bit binary instead of 64 using GCC's `-m32` flag.
-    Original binary was 32 bits, the convertion to 64 never had any proof-reading, 
-    and this might be the root cause of several bugs.
 - Bugfix: percentages sometimes show > 100% done
 - Bugfix: investigate calculated RG gain when --gain and DC correction is used,
    also how these are affected by --limiter, --noclip, etc

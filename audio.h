@@ -53,7 +53,7 @@ typedef long (*audio_read_func)(void *src,
                                 double **buffer,
                                 int samples,
                                 int fast,
-                                int chunk);
+                                Int64_t chunk);
 
 typedef struct
 {
@@ -61,7 +61,7 @@ typedef struct
 	
 	void *readdata;
 
-	unsigned long total_samples_per_channel;
+	Uint64_t total_samples_per_channel;
 	int channels;
 	long rate;
 	int samplesize;
@@ -78,6 +78,9 @@ typedef struct
 	int header_size;
 	unsigned char *header;
 
+	int is_wave64;
+	FILE *source;
+	Int64_t data_start, data_end, container_end;
 	FILE *out;
 	char *filename;
 } wavegain_opt;
@@ -106,10 +109,12 @@ typedef struct {
 typedef struct {
 	short channels;
 	short samplesize;
-	unsigned long  totalsamples;
-	unsigned long  samplesread;
+	Uint64_t totalsamples;
+	Uint64_t samplesread;
 	FILE  *f;
 	short bigendian;
+	int bounded;
+	Int64_t data_start;
 } wavfile;
 
 typedef struct {
@@ -125,6 +130,10 @@ typedef wavfile aifffile; /* They're the same */
 
 input_format *open_audio_file(FILE *in, wavegain_opt *opt);
 
+int w64_id(unsigned char *buf, int len);
+int w64_open(FILE *in, wavegain_opt *opt, unsigned char *buf, int len);
+int setup_wav(FILE *in, wavegain_opt *opt, const unsigned char *fmt,
+              size_t fmt_size, Int64_t data_size);
 int raw_open(FILE *in, wavegain_opt *opt);
 int wav_open(FILE *in, wavegain_opt *opt, unsigned char *buf, int buflen);
 int aiff_open(FILE *in, wavegain_opt *opt, unsigned char *buf, int buflen);
@@ -133,8 +142,8 @@ int aiff_id(unsigned char *buf, int len);
 void wav_close(void *);
 void raw_close(void *);
 
-long wav_read(void *, double **buffer, int samples, int fast, int chunk);
-long wav_ieee_read(void *, double **buffer, int samples, int fast, int chunk);
+long wav_read(void *, double **buffer, int samples, int fast, Int64_t chunk);
+long wav_ieee_read(void *, double **buffer, int samples, int fast, Int64_t chunk);
 
 enum file_formats {
 	WAV_NO_FMT = 0,
@@ -155,14 +164,18 @@ typedef struct
 	unsigned long samplerate;
 	unsigned long bits_per_sample;
 	unsigned long channels;
-	unsigned long samples;
+	Uint64_t samples;
 	int           endianness;
 	int           format;
+	Int64_t data_offset;
+	Uint64_t expected_bytes;
 } audio_file;
 
+int w64_write_header(audio_file *out, wavegain_opt *opt);
+int w64_finish(FILE *in, audio_file *out, wavegain_opt *opt);
 audio_file *open_output_audio_file(char *infile, wavegain_opt *opt);
 int write_audio_file(audio_file *aufile, void *sample_buffer, int samples);
-void close_audio_file(FILE *in, audio_file *aufile, wavegain_opt *opt);
+int close_audio_file(FILE *in, audio_file *aufile, wavegain_opt *opt);
 int write_wav_header(audio_file *aufile, wavegain_opt *opt, Int64_t file_size);
 int write_aiff_header(audio_file *aufile);
 int write_audio_8bit(audio_file *aufile, void *sample_buffer, unsigned int samples);

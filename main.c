@@ -427,7 +427,7 @@ static void usage(void)
 #endif
 	fprintf(stdout, " INPUT FILES\n");
 	fprintf(stdout, "  WaveGain input files may be 8, 16, 24 or 32 bit integer, or floating point\n"); 
-	fprintf(stdout, "  wave files with 1 or 2 channels and a sample rate of 96000Hz, 88200Hz,\n");
+	fprintf(stdout, "  WAV or Sony Wave64 files with 1 or 2 channels and a sample rate of 96000Hz, 88200Hz,\n");
 	fprintf(stdout, "  64000Hz, 48000Hz, 44100Hz, 32000Hz, 24000Hz, 22050Hz, 16000Hz, 12000Hz,\n");
 	fprintf(stdout, "  11025Hz or 8000Hz.\n");
 	fprintf(stdout, "  16 bit integer 'aiff' files are also supported.\n");
@@ -706,11 +706,12 @@ int main(int argc, char** argv)
 
 	if (!strcmp(argv[optind], "-")) {
 		double track_peak, track_gain;
-		double dc_offset;
-		double offset;
+		double dc_offset[2] = {0};
+		double offset[2] = {0};
 		if (!get_gain("-", &track_peak, &track_gain,
-		              &dc_offset, &offset, &settings))
-			return -1;
+		              dc_offset, offset, &settings))
+			return EXIT_FAILURE;
+		return EXIT_SUCCESS;
 	}
 	else {
 		for (i = optind; i < argc; ++i) {

@@ -70,14 +70,41 @@ $ make && sudo make install # by default installs to /usr/local/bin/wavegain
 or
 $ make && sudo make install prefix=/usr # to install to /usr/bin/wavegain
 
-Currently, 64-bit binaries build fine but can generate corrupted audio on output
-files, so to prevent this by default it builts a 32-bit executable instead,
-which runs and works fine on 64-bit architectures. However, multi-arch libraries
-and headers might be needed as a pre-requiste for compiling. On Debian/Ubuntu this
-can be installed by:
+The default build uses the compiler's native architecture (including 64-bit).
+PCM samples use fixed-width 32-bit storage, and POSIX builds enable 64-bit file
+offsets. Files larger than 2 GiB are supported within the standard RIFF/WAV
+32-bit chunk-size limits (approximately 4 GiB). Sony Wave64 (.w64) input and output are also supported, with 64-bit chunk
+sizes and sample counts. Wave64 input is detected by its GUIDs and remains
+Wave64 when gain is applied, including when -b changes the PCM format.
+RF64 is not supported.
 
-	sudo apt install gcc-multilib
+To explicitly request a 32-bit build on an x86 toolchain, use:
 
+    make CFLAGS=-m32
+
+This may require multilib headers and libraries, e.g. gcc-multilib on Debian.
+Run the PCM and large-file regression tests with `make check`.
+
+Wave64 examples:
+
+    wavegain recording.w64             # calculate gain
+    wavegain -y recording.w64          # apply gain in the same container
+    wavegain -y -w recording.w64       # also store the applied gain
+    wavegain --undo-gain recording.w64 # reverse the stored gain (lossy)
+    wavegain -y -b 3 recording.w64     # convert samples to 24-bit PCM
+
+Wave64 supports the same mono/stereo PCM and sample rates as WAV. Unknown
+chunks before and after audio are preserved with bounded-memory copying.
+The WaveGain gain extension uses a private GUID
+(e217d848-96be-4ac0-b56a-8b46289c71e0), containing a little-endian IEEE double.
+Files must contain a format chunk before a single audio data chunk; compressed
+codecs and RF64 remain unsupported. -b 6 explicitly selects AIFF output and
+retains that format's 32-bit size limit. No WAV-to-Wave64 conversion option is
+provided; use an external converter to create the initial .w64 file.
+
+`make check` includes sparse 5 GiB Wave64 input/output, padding, metadata,
+PCM/float, extensible format, gain and malformed-size regressions. Optional
+FFmpeg interoperability checks can be run with `make check-interop`.
 
 Pre-compiled binaries and old versions
 -------------------------------------------------------------------------------
@@ -178,7 +205,7 @@ Additional code by Magnus Holmgren, Gian-Carlo Pascutto, and Tycho
                    and type as the input file.
  INPUT FILES
   WaveGain input files may be 8, 16, 24 or 32 bit integer, or floating point
-  wave files with 1 or 2 channels and a sample rate of 96000Hz, 88200Hz,
+  WAV or Sony Wave64 files with 1 or 2 channels and a sample rate of 96000Hz, 88200Hz,
   64000Hz, 48000Hz, 44100Hz, 32000Hz, 24000Hz, 22050Hz, 16000Hz, 12000Hz,
   11025Hz or 8000Hz.
   16 bit integer 'aiff' files are also supported.

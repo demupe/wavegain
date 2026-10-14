@@ -2,7 +2,7 @@ SHELL    = /bin/sh
 CC       = gcc
 
 TARGET   = wavegain
-CFLAGS  += -m32
+CPPFLAGS += -D_FILE_OFFSET_BITS=64
 DEFS     = -DHAVE_CONFIG_H
 LIBS     = -lm
 SOURCES := $(wildcard *.c)
@@ -40,7 +40,7 @@ asan: CFLAGS += -g3 -O2 -U_FORTIFY_SOURCE -fsanitize=address -fno-omit-frame-poi
 asan: clean $(TARGET)
 
 $(TARGET): $(SOURCES) $(HEADERS)
-	$(CC) $(CFLAGS) $(DEFS) -o $(TARGET) $(SOURCES) $(LIBS)
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEFS) -o $(TARGET) $(SOURCES) $(LIBS)
 
 install: $(TARGET)
 	install -s -D $(TARGET) $(DESTDIR)$(bindir)/$(TARGET)
@@ -48,9 +48,19 @@ install: $(TARGET)
 uninstall:
 	rm -f $(DESTDIR)$(bindir)/$(TARGET)
 
+check:
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEFS) -UNDEBUG -o test/portability test/portability.c w64.c $(LIBS)
+	./test/portability
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEFS) -UNDEBUG -o test/wave64 test/wave64.c $(LIBS)
+	./test/wave64
+	$(RM) test/portability test/wave64
+
+check-interop: $(TARGET)
+	python3 test/wave64_interop.py
+
 clean:
-	rm -f $(TARGET)
+	rm -f $(TARGET) test/portability test/wave64
 
 distclean: clean
 
-.PHONY : all debug release asan install uninstall clean distclean
+.PHONY : all debug release asan install uninstall clean distclean check check-interop
