@@ -7,6 +7,11 @@ TARGET   = wavegain
 CPPFLAGS += -D_FILE_OFFSET_BITS=64
 DEFS     = -DHAVE_CONFIG_H
 LIBS     = -lm
+# MinGW: _FORTIFY_SOURCE (release builds) needs libssp. Link it statically so
+# the .exe depends only on system DLLs (KERNEL32, msvcrt).
+ifneq ($(findstring mingw,$(shell $(CC) -dumpmachine 2>/dev/null)),)
+LIBS    += -Wl,-Bstatic -lssp -Wl,-Bdynamic
+endif
 SOURCES := $(wildcard *.c)
 HEADERS := $(wildcard *.h)
 

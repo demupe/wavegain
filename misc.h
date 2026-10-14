@@ -2,8 +2,11 @@
 #define MISC_H
 
 #ifdef _WIN32
-typedef signed   __int64    Int64_t;
-typedef unsigned __int64    Uint64_t;
+/* <stdint.h> rather than __int64: MinGW only defines __int64 once a system
+ * header has been included, and dither.c includes this header first. */
+#include <stdint.h>
+typedef int64_t             Int64_t;
+typedef uint64_t            Uint64_t;
 #define chdir _chdir
 #define strdup _strdup
 #define getcwd _getcwd

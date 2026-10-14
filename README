@@ -1,4 +1,4 @@
-ReplayGain for wave files, v1.4.2
+ReplayGain for wave files, v1.4.3
 
 WaveGain is an application of the ReplayGain algorithms to standard PCM wave
 files. Calculated gain adjustments are applied directly to the audio data,
@@ -117,6 +117,15 @@ exceeds 4 GiB, so smaller output stays a plain RIFF/WAV file. --rf64 needs a
 seekable output and is ignored with --stdout. RF64 input is rewritten the same
 way, so it stays RF64 when it is still over 4 GiB.
 
+Windows binaries can be built with MinGW-w64 GCC (for example in an MSYS2
+MINGW64 shell) using the same Makefile; it produces wavegain.exe. Release
+builds link libssp statically for _FORTIFY_SOURCE, so the .exe needs only
+system DLLs. The MinGW build was checked under Wine (regression tests,
+scalar/SIMD filter equality and output identical to a native build); runtime
+on native Windows has not been verified yet. On macOS the 'gain' chunk scale
+is stored big-endian (an upstream choice), so files written with -w on macOS
+and on other platforms are not interchangeable for --undo-gain.
+
 `make check` includes sparse 5 GiB Wave64 input/output, padding, metadata,
 PCM/float, extensible format, gain and malformed-size regressions. Optional
 FFmpeg interoperability checks can be run with `make check-interop`.
@@ -185,7 +194,7 @@ Documentation (from wavegain --help)
 -------------------------------------------------------------------------------
 Generated from doc/help.json; run make docs after editing.
 
-WaveGain v1.4.2
+WaveGain v1.4.3
  Usage: wavegain [options] input.wav [...] (also .w64)
 
  OPTIONS

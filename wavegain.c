@@ -16,6 +16,7 @@
 # include "config.h"
 #endif
 
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -298,7 +299,9 @@ int write_gains(const char *filename, double radio_gain, double audiophile_gain,
 	char         template[] = ".tmp_XXXXXX";
 	int          tempSize = strlen(filename) + strlen(template) + 1;
 	char*        tempName = NULL;
-	struct stat  fst;
+#ifndef _WIN32
+	struct stat  fst;	/* owner and permissions are copied on POSIX only */
+#endif
 
 	memset(wg_opts, 0, sizeof(wavegain_opt));
 
