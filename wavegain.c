@@ -199,11 +199,14 @@ int get_gain(const char *filename, double *track_peak, double *track_gain,
         fprintf(stderr, " Error Initializing Gain Analysis (non-standard samplerate?)\n"); goto done;
     }
     if (settings->first_file) {
+        /* Same table header on the console and in the log. */
+        static const char header[] =
+            "\n Analyzing...\n\n    Gain   |  Peak  | Scale | New Peak |Left DC|Right DC| Track\n"
+            "           |        |       |          |Offset | Offset |\n"
+            " --------------------------------------------------------------\n";
         total_samples = 0.;
-        fprintf(stderr, "\n Analyzing...\n\n    Gain   |  Peak  | Scale | New Peak |Left DC|Right DC| Track\n"
-                        "           |        |       |          |Offset | Offset |\n"
-                        " --------------------------------------------------------------\n");
-        if (write_to_log) write_log("\n Analyzing...\n    Gain   | Peak | Scale | New Peak |Left DC|Right DC| Track\n");
+        fputs(header, stderr);
+        if (write_to_log) write_log("%s", header);
     }
     sampled = settings->fast && !opt.std_in &&
               opt.total_samples_per_channel * (opt.samplesize / 8) * opt.channels > 8192000;

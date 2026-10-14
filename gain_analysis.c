@@ -711,7 +711,8 @@ AnalyzeSamples ( const Float_t* left_samples, const Float_t* right_samples, size
             val = (Float_t)STEPS_per_dB * 10. * log10 ( (lsum+rsum) / totsamp * 0.5 + 1.e-37 );
 #endif
             /* Reject filter/energy overflow before a non-finite-to-int cast.
-             * Clamp finite out-of-range levels before conversion as well. */
+             * Clamp finite out-of-range levels before conversion as well.
+             * State is left partially updated; callers must reset (see header). */
             if (!isfinite(val)) return GAIN_ANALYSIS_ERROR;
             if (val < 0.) ival = 0;
             else if (val >= (double)(sizeof(A)/sizeof(*A)))
