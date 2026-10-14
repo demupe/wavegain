@@ -1,0 +1,61 @@
+{
+  "ffmpeg": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
+  "cases": [
+    {
+      "channels": 1,
+      "tone_hz": 80,
+      "wavegain_db": 10.96,
+      "ffmpeg_db": 10.98,
+      "difference_db": -0.019999999999999574
+    },
+    {
+      "channels": 1,
+      "tone_hz": 440,
+      "wavegain_db": -0.41,
+      "ffmpeg_db": -0.39,
+      "difference_db": -0.019999999999999962
+    },
+    {
+      "channels": 1,
+      "tone_hz": 4000,
+      "wavegain_db": -6.92,
+      "ffmpeg_db": -6.9,
+      "difference_db": -0.019999999999999574
+    },
+    {
+      "channels": 1,
+      "tone_hz": 16000,
+      "wavegain_db": 23.1,
+      "ffmpeg_db": 23.12,
+      "difference_db": -0.019999999999999574
+    },
+    {
+      "channels": 2,
+      "tone_hz": 80,
+      "wavegain_db": 9.48,
+      "ffmpeg_db": 9.49,
+      "difference_db": -0.009999999999999787
+    },
+    {
+      "channels": 2,
+      "tone_hz": 440,
+      "wavegain_db": -0.47,
+      "ffmpeg_db": -0.45,
+      "difference_db": -0.019999999999999962
+    },
+    {
+      "channels": 2,
+      "tone_hz": 4000,
+      "wavegain_db": -6.39,
+      "ffmpeg_db": -6.38,
+      "difference_db": -0.009999999999999787
+    },
+    {
+      "channels": 2,
+      "tone_hz": 16000,
+      "wavegain_db": 23.44,
+      "ffmpeg_db": 23.46,
+      "difference_db": -0.019999999999999574
+    }
+  ]
+}

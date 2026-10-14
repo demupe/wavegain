@@ -1,4 +1,4 @@
-ReplayGain for wave files, v1.3.2
+ReplayGain for wave files, v1.4.0
 
 WaveGain is an application of the ReplayGain algorithms to standard PCM wave
 files. Calculated gain adjustments are applied directly to the audio data,
@@ -70,14 +70,82 @@ $ make && sudo make install # by default installs to /usr/local/bin/wavegain
 or
 $ make && sudo make install prefix=/usr # to install to /usr/bin/wavegain
 
-Currently, 64-bit binaries build fine but can generate corrupted audio on output
-files, so to prevent this by default it builts a 32-bit executable instead,
-which runs and works fine on 64-bit architectures. However, multi-arch libraries
-and headers might be needed as a pre-requiste for compiling. On Debian/Ubuntu this
-can be installed by:
+The default build uses the compiler's native architecture (including 64-bit).
+PCM samples use fixed-width 32-bit storage, and POSIX builds enable 64-bit file
+offsets. Files larger than 2 GiB are supported within the standard RIFF/WAV
+32-bit chunk-size limits (approximately 4 GiB). Sony Wave64 (.w64) input and output are also supported, with 64-bit chunk
+sizes and sample counts. Wave64 input is detected by its GUIDs and remains
+Wave64 when gain is applied, including when -b changes the PCM format.
+RF64 is not supported.
 
-	sudo apt install gcc-multilib
+To explicitly request a 32-bit build on an x86 toolchain, use:
 
+    make CFLAGS=-m32
+
+This may require multilib headers and libraries, e.g. gcc-multilib on Debian.
+Run the PCM and large-file regression tests with `make check`.
+
+Wave64 examples:
+
+    wavegain recording.w64             # calculate gain
+    wavegain -y recording.w64          # apply gain in the same container
+    wavegain -y -w recording.w64       # also store the applied gain
+    wavegain --undo-gain recording.w64 # reverse the stored gain (lossy)
+    wavegain -y -b 3 recording.w64     # convert samples to 24-bit PCM
+
+Wave64 supports the same mono/stereo PCM and sample rates as WAV. Unknown
+chunks before and after audio are preserved with bounded-memory copying.
+'fact' and gain chunks are rewritten before the audio, and 'levl' peak
+summaries (stale after a gain change) are dropped, wherever they appear.
+On seekable input, container or data sizes that were never finalized (for
+example a file written to a pipe) or that exceed a truncated file are
+accepted with a warning, like the WAV reader; stdin input stays strict.
+The WaveGain gain extension uses a private GUID
+(e217d848-96be-4ac0-b56a-8b46289c71e0), containing a little-endian IEEE double.
+Files must contain a format chunk before a single audio data chunk; compressed
+codecs and RF64 remain unsupported. -b 6 explicitly selects AIFF output and
+retains that format's 32-bit size limit. No WAV-to-Wave64 conversion option is
+provided; use an external converter to create the initial .w64 file.
+
+WAV output that would exceed the 4 GiB RIFF limit (for example a large 16-bit
+file converted with -b 4) is rejected before processing, and the original
+file is kept unchanged.
+
+`make check` includes sparse 5 GiB Wave64 input/output, padding, metadata,
+PCM/float, extensible format, gain and malformed-size regressions. Optional
+FFmpeg interoperability checks can be run with `make check-interop`.
+
+`make verified-release` builds a release binary and compares the ReplayGain
+filter state and complete conversion output against a scalar build made with
+the same compiler and flags, deleting the binary on any mismatch.
+VERIFY_SIMD=auto (default) accepts either filter backend, VERIFY_SIMD=1
+requires the paired stereo SIMD backend and VERIFY_SIMD=0 requires scalar.
+
+
+Behavior changes
+-------------------------------------------------------------------------------
+Results can differ from earlier releases for the same input:
+
+* Clipping prevention and the reported Peak use the peak AFTER the selected
+  DC offset correction (track or album), instead of the uncorrected peak.
+* DC offset correction is applied when the offset of either channel exceeds
+  1/32768 of full scale. Earlier releases required at least 2/32768.
+* With -t (--limiter) every file is rewritten, even when no gain change or
+  DC correction would otherwise be needed.
+* 88.2 kHz files use new filter coefficients (the former ones were unstable),
+  so their gain values change. Other rates can also change on FMA-capable
+  builds (next item). MSVC builds using the legacy SSE2 filter (HAVE_SSE2)
+  previously ignored the last Yule coefficient, so they change at every rate.
+* The ReplayGain filters are evaluated without fused multiply-add (FMA). On
+  FMA-capable builds (AArch64, or x86_64 with -march=x86-64-v3 or later) the
+  filter rounding differs from earlier builds that let the compiler fuse
+  operations, so at any sample rate a reported gain close to a 0.01 dB
+  histogram step can move by one step (e.g. -0.44 dB -> -0.45 dB at 48 kHz).
+  Builds that cannot use FMA (e.g. the default x86_64 -O2) give the same
+  results as before. Within one build the scalar and SIMD filters match
+  bit-for-bit; gain values matched across the compilers and targets tested
+  for this change, but RMS accumulation and log10 are outside this rule, so
+  identical gains across all compilers and architectures are not guaranteed.
 
 Pre-compiled binaries and old versions
 -------------------------------------------------------------------------------
@@ -109,11 +177,10 @@ Copyright (c) 2012 Rodrigo Silva (MestreLion)
 
 Documentation (from wavegain --help)
 -------------------------------------------------------------------------------
+Generated from doc/help.json; run make docs after editing.
 
-Copyright (c) 2002-2010 John Edwards <john.edwards33@ntlworld.com>
-Additional code by Magnus Holmgren, Gian-Carlo Pascutto, and Tycho
-
- Usage: wavegain [options] input.wav [...]
+WaveGain v1.4.0
+ Usage: wavegain [options] input.wav [...] (also .w64)
 
  OPTIONS
   -h, --help       Prints this help information.
@@ -143,26 +210,28 @@ Additional code by Magnus Holmgren, Gian-Carlo Pascutto, and Tycho
                    value to reverse the previously applied gain. This will NOT
                    recreate a bit identical version of the original file, but
                    it will be rescaled to the original level.
+[Builds with recursive/pattern support]
   -z, --recursive  Search for files recursively, each folder as an album
   -l, --log        Write log file.(Default filename = WGLog.txt)
   -f, --logfile    Specify log filename. (Assumes -l if present.)
-  -n, --noclip     NO Clipping Prevention.
+  -n, --noclip     Disable gain prevention; PCM output still obeys its sample limits.
   -d, --dither X   Dither output, where X =
                0   for       dither OFF (default).
                1   for       dither without Noise Shaping.
                2   for       dither with Light Noise Shaping.
                3   for       dither with Medium Noise Shaping.
                4   for       dither with Heavy Noise Shaping.
-  -t, --limiter    Apply 6dB Hard Limiter to output.
+  -t, --limiter    Apply a smooth tanh limiter above half full scale (-6dB).
   -g, --gain X     Apply additional Manual Gain adjustment in decibels, where
              X = any floating point number between -20.0 and +12.0.
                    Clipping Prevention WILL be applied UNLESS '-n' is used.
   -s, --fast       Calculates and prints gain settings - DOES NOT APPLY THEM.
                    NOTE: This method does NOT process all samples, it only
-                         processes 200 x 16k chunks of samples. Results will
+                         processes up to 200 blocks of 16,384 frames (one sample
+                         per channel). Results will
                          NOT be as accurate as a full analysis but, with most
-                         material, will be within +/- 0.5db. Files of 8,192,000
-                         real samples, or less, will be analysed in full.
+                         material, will be within +/- 0.5db. Audio data of
+                         8,192,000 bytes or less is analysed in full.
                          DC Offset is neither calculated nor corrected in
                          FAST mode.
   -o, --stdout     Write output file to stdout.
@@ -176,13 +245,32 @@ Additional code by Magnus Holmgren, Gian-Carlo Pascutto, and Tycho
              6     for       16 bit 'aiff' format.
          NOTE:     By default, the output file will be of the same bitwidth
                    and type as the input file.
+[Windows builds only]
+  -e, --exec Cmd   Execute a command after wavegain.
+                   The following environment variables are available:
+                   INPUT_FILE, INPUT_FDIR, INPUT_RDIR, INPUT_NAME,
+                   TRACK_GAIN, TRACK_PEAK, TRACK_SCALE, TRACK_NEW_PEAK,
+                   ALBUM_GAIN, ALBUM_PEAK, ALBUM_SCALE, ALBUM_NEW_PEAK,
+                   DC_OFFSET_L, DC_OFFSET_R
  INPUT FILES
   WaveGain input files may be 8, 16, 24 or 32 bit integer, or floating point
-  wave files with 1 or 2 channels and a sample rate of 96000Hz, 88200Hz,
+  WAV or Sony Wave64 files with 1 or 2 channels and a sample rate of 96000Hz, 88200Hz,
   64000Hz, 48000Hz, 44100Hz, 32000Hz, 24000Hz, 22050Hz, 16000Hz, 12000Hz,
   11025Hz or 8000Hz.
   16 bit integer 'aiff' files are also supported.
-  Wildcards (?, *) can be used in the filename, or '-' for stdin.
+  Use '-' for stdin (calculation only). Wave64 input remains Wave64
+  when gain or a PCM format change is applied. RF64 is not supported.
+[Builds with recursive/pattern support]
+  Quote wildcard patterns so the shell passes them to WaveGain:
+      wavegain '*.wav'
+  Matching is case sensitive on POSIX and case insensitive on Windows.
 
+ PEAK AND GAIN
+  Peak is measured after the selected DC correction. New Peak predicts
+  the scaled peak BEFORE limiting, dithering and output quantization.
+  Manual gain is added once, then capped unless --noclip is used.
+  --limiter does not remove this cap; combine with --noclip to bypass it.
 
-wavegain-1.3.2
+Copyright (c) 2002-2010 John Edwards <john.edwards33@ntlworld.com>
+Additional code by Magnus Holmgren, Gian-Carlo Pascutto, and Tycho
+Documentation originally by Rodrigo Silva.

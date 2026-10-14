@@ -1,0 +1,78 @@
+WaveGain safe conversion improvements
+Date: 2026-10-14 (Asia/Tokyo)
+Baseline: 74e50db; branch: fix/64bit-wave64
+Historical buffer/float implementation report. Subsequent filter fixes and SIMD
+are documented in filter-simd-investigation.txt.
+
+Implemented
+-----------
+The conversion sample buffer is allocated once per output file, sized for its
+actual sample type and maximum block length. Each audio_file owns one reusable
+packing buffer. It grows only when necessary and is freed at stream close.
+Integer sample packing and all gain, limiter, dither, RNG and ReplayGain
+arithmetic are unchanged.
+
+Float serialization copies IEEE binary32 bits instead of reconstructing an
+exponent/mantissa through frexp. Native-layout checks reject unsupported float
+representations. Little-endian hosts copy the block and canonicalize signed
+zeros; other supported hosts serialize each value explicitly as little endian.
+Both signed zeros remain positive zero, as in the previous implementation.
+Subnormal output is corrected: the smallest positive subnormal retains bits
+0x00000001 instead of being incorrectly encoded as 0x75000000. The input buffer
+is never modified. Infinity/NaN payload preservation is tested at the direct
+writer boundary; it does not imply non-finite input support in ReplayGain.
+
+Allocation growth and byte-count overflow are checked. Failed growth preserves
+the old buffer. Sample counts advance only after a successful full write.
+The conversion caller handles read/write/allocation failure, removes its
+incomplete temporary output and leaves the original file in place. Errors from
+final stream close are still checked; stdout can contain partial output on error.
+
+Validation
+----------
+make check and make check-interop passed on macOS arm64 and x86_64.
+A full AddressSanitizer build also passed both checks on arm64.
+Checks cover PCM, Wave64 formats/padding/metadata, sparse 3 GiB WAV and 5 GiB
+Wave64 I/O, gain/progress regressions, FFmpeg interoperability, stdin/stdout,
+float edge encodings and the explicit endian fallback. Allocation failure,
+zero-length writes, size overflow and a non-writable stream are exercised.
+An actual big-endian host and other operating systems have not been tested.
+
+Measured result
+---------------
+Apple clang 21.0.0, macOS arm64, -O2, 60 seconds of stereo 96 kHz input.
+One warmup per case/variant and five timed runs in randomized interleaved order;
+warm filesystem cache, file output included. The complete output stream matches
+the baseline for all six normal-input workloads below.
+
+Case           Old seconds New seconds Throughput ratio  Bytes equal
+calculate24    0.440666  0.439419  1.0028x  True
+apply16        0.504820  0.509615  0.9906x  True
+apply24        0.511460  0.509200  1.0044x  True
+float24        0.520070  0.513010  1.0138x  True
+dither24       0.756848  0.758320  0.9981x  True
+limiter24      0.553163  0.562837  0.9828x  True
+
+Whole-run differences are small (roughly -2% to +1.4% in these medians), within
+observed run-to-run spread. These changes remove repeated allocations and float
+reconstruction, but this benchmark does not establish a substantial overall
+speedup. ReplayGain filtering still dominates ordinary conversion time.
+The benchmark does not measure cold storage, in-place rename or large-file
+throughput, and these normal signals do not exercise corrected subnormals.
+
+Reproduction
+------------
+python3 tools/benchmark_conversion.py --ref 74e50db --seconds 60 --repeats 5 \
+    --variants baseline,working_tree --output /tmp/conversion-safe-performance.json
+
+Full timings, output comparisons, stage profiles and the source fingerprint
+are recorded in conversion-safe-performance.json. Historical prototype results
+remain in conversion-performance.txt and its companion JSON files.
+
+Deferred
+--------
+Paired stereo filters require a defined rounding/contraction policy and more
+platform and histogram-boundary validation. The existing 88.2 kHz filter can
+produce non-finite values; its cause is still unresolved. Filter code and
+coefficients are intentionally unchanged in this implementation. Dither path
+specialization and compiler flag changes are also deferred.

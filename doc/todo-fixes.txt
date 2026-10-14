@@ -1,0 +1,58 @@
+TODO implementation follow-up, 2026-10-14
+=======================================
+The investigation in todo-investigation.txt/json is historical evidence for
+8b224d3. todo-fixed.json records the same probes with the uncommitted fixes.
+The source_commit value there is the base HEAD; the runtime fixes are in the
+working tree until committed.
+
+DC correction and clipping
+--------------------------
+Full analysis now stores each channel's extrema, actual frame count and raw
+ReplayGain value. Track/album DC policies are resolved before choosing a cap.
+The cap uses max(abs(min - DC), abs(max - DC)), across the album where needed,
+and manual gain is added once. Album analysis resets filters for each file's
+sample rate while retaining the album histogram. The ReplayGain loudness
+filter and limiter transfer function have not been changed.
+
+The original asymmetric DC fixture now selects about +1.41dB instead of
++5.19dB. Its minimum output is -32767 rather than -32768, without clipped
+pulses. Peak is the DC-corrected peak; New Peak is explicitly the scaled peak
+before limiting, dithering and output quantization. --limiter still keeps the
+prevention cap enabled unless --noclip is selected. --noclip keeps output
+sample range enforcement. Fast mode does not calculate/apply DC or write audio.
+
+Progress
+--------
+File progress uses processed frames and full-precision denominators. Overall
+progress sums the durations of tracks actually scheduled for writing, so mixed
+rates and skipped files do not distort the denominator. Updates are throttled
+by elapsed audio duration and successful output finalization emits 100%.
+Empty audio is skipped rather than divided by zero. Undo plans only tracks
+with stored gain still needing reversal. Original inf%, 112% and 171% probes
+now terminate with finite 100% values.
+
+Help and manuals
+----------------
+doc/help.json is the canonical help text with build/platform conditions.
+make docs generates help_generated.h, README's help section, the nroff man
+page and HTML manual. make check-docs rejects stale generated files and checks
+that parser option names have help entries. Builds use the checked-in header,
+so Python is needed to update docs/test rather than to compile released code.
+Copyright attribution is at the end. Wildcard examples explain quoting;
+--fast describes a byte threshold separately from sampled frame counts.
+Wave64 and peak/limiter semantics are documented consistently. The previous
+manual's prose is retained in an explicitly historical legacy-notes.txt.
+
+License header cleanup
+----------------------
+Not part of this change. Source license notices are left as released; the
+analysis in doc/todo-investigation.txt is kept for a separate review.
+
+Validation
+----------
+make check runs exact PCM and sparse 3/5 GiB container tests plus the new CLI
+regressions: asymmetric DC, 8/16/24/32-bit and float output, manual gain,
+limiter, unshaped dither, different two-track means with album/track DC,
+short/fractional durations, mixed rates in both orders, skipped files, Undo,
+empty audio and help consistency. make check-interop exercises FFmpeg Wave64
+input/output, sample conversion, gain/undo and stdin/stdout.

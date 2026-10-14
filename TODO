@@ -1,15 +1,69 @@
-- Investigate why 64-bit executable corrupt some test files by chopping audio and
-    changing its pitch. Original windows binary was 32 bits, and to prevent this bug
-    so is this build, forcedly by using GCC's -m32 flag. Proof-reading is required to
-    see what triggers the bug in 64-bits binaries and, to hopefully allow for a non-buggy
-    native AMD64 build in the future.
-- Consider generating a 32-bit binary instead of 64 using GCC's `-m32` flag.
-    Original binary was 32 bits, the convertion to 64 never had any proof-reading, 
-    and this might be the root cause of several bugs.
-- Bugfix: percentages sometimes show > 100% done
-- Bugfix: investigate calculated RG gain when --gain and DC correction is used,
-   also how these are affected by --limiter, --noclip, etc
-- Fix --help linux issues (copyright at bottom, * ? as Wildcard)
-   if possible, make it convertable to nroff (man page) and/or html (manual),
-   so the 3 are always in sync
-- Standard license/copyright headers in all sources
+Implementation follow-up: 2026-10-14 (base commit 8b224d3).
+Details: doc/todo-fixes.txt
+Historical investigation: doc/todo-investigation.txt / .json
+Current probe results: doc/todo-fixed.json
+Reproduce: make check; make check-interop (requires FFmpeg)
+
+- [DONE] Native 64-bit audio corruption / forced -m32 build.
+    Fixed in 8b224d3: fixed-width PCM, portable lrint, native builds,
+    large-file offsets and fast-mode positions. PCM and large-file checks
+    cover the fix, including sparse Wave64 input/output above 4 GiB.
+
+- [DONE] Percentages sometimes show > 100% done (or inf%).
+    Progress uses processed frames per file and planned per-file durations
+    overall. Short/fractional durations, mixed sample rates, skipped files,
+    Undo and empty audio are covered. Successful writes finish at 100%.
+
+- [DONE] ReplayGain / manual gain / DC correction / clipping.
+    Channel extrema and actual frame counts determine peaks after the
+    selected track/album DC correction. Gain caps use corrected peaks;
+    album caps are selected after all track means are known. Manual gain
+    is added once. The limiter retains its existing cap unless --noclip
+    is used. New Peak is documented as the pre-limiter prediction.
+    Regression coverage includes asymmetric PCM/float, distinct album
+    means, manual gain, no-offset, limiter and unshaped dither.
+
+- [DONE] --help layout, wildcard instructions, man/HTML sync.
+    doc/help.json generates CLI text, README help, nroff and HTML via
+    make docs. make check-docs rejects stale files and undocumented options.
+    Build/platform conditions, Wave64, byte-based fast thresholds, quoting,
+    case sensitivity and peak/limiter semantics are retained or clarified.
+    Runtime checks covered macOS arm64/x86_64; Linux/Windows runtime checks
+    remain useful portability follow-ups.
+
+- [OPEN] Standard license/copyright headers in all sources.
+    Deferred to a separate change: source license notices are unchanged
+    here. Findings are in doc/todo-investigation.txt.
+
+Performance investigation (2026-10-14): doc/conversion-performance.txt
+- [DONE] Paired stereo ReplayGain filters: expression-preserving SIMD on
+    Clang and GCC 5+ for AArch64 and x86_64, with FP contraction disabled in
+    the filters so scalar and paired paths are bitwise identical.
+    Mono and other targets retain scalar/legacy paths.
+    Use make verified-release (VERIFY_SIMD=auto|1|0) to require runtime
+    equality before installation.
+    Kernel/API state, histogram boundaries and unaffected-rate output
+    match the scalar reference bit-for-bit on tested builds. Current benchmark
+    gives ~1.5x ordinary stereo conversion throughput on macOS arm64.
+    Details and limits: doc/filter-simd-investigation.txt.
+- [DONE] IEEE float serializer: replace frexp/byte reconstruction with guarded
+    binary32 bit copying and an explicit little-endian fallback. Subnormals
+    retain their value; signed zeros still serialize as positive zero.
+    Exact-byte edge tests and input immutability checks cover the serializer.
+- [DONE] 88.2kHz ReplayGain: both old denominators were unstable (real poles
+    ~1.426 and ~1.067). Replace only this rate with FFmpeg coefficients in both
+    table layouts; all twelve rates pass stability checks. Reject non-finite
+    RMS levels and clamp before histogram casts. FFmpeg comparison and
+    mono/stereo WAV/Wave64 conversion/undo checks cover the corrected rate.
+- [DONE] Legacy SSE2 Yule kernel used padding instead of b10. Correct its
+    final numerator tap; all-rate impulse/DC/tone checks against long-double
+    reference pass under x86_64 Clang. Native Windows/MSVC execution remains
+    a platform validation follow-up.
+- [DONE] Reuse conversion/packing buffers per output file; check allocation,
+    byte-count overflow and write failures before replacing the original file.
+    Buffer reuse preserves integer packing and gain/dither/RNG arithmetic.
+    See doc/conversion-safe-implementation.txt and conversion-safe-performance.json.
+    Overall speed differences remain small in the 96 kHz synthetic benchmark.
+- [OPEN] Profile noise-shaped dither and common-path specialization separately;
+    preserve RNG/history/rounding semantics. Compiler flags alone gave only
+    modest or inconsistent gains in this workload.

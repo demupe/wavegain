@@ -2,7 +2,7 @@
 #define MAIN_H
 
 /* Some version numbers */
-#define WAVEGAIN_VERSION "1.3.2"
+#define WAVEGAIN_VERSION "1.4.0"
 
 #define BUFFER_LEN  16384
 #define LOG_NAME "WGLog.txt"
@@ -22,6 +22,10 @@ typedef struct file_list
     double track_peak;
     double dc_offset[2];
     double offset[2];
+    double minimum[2], maximum[2];
+    double raw_gain, duration;
+    unsigned long long frames;
+    int channels, apply;
 } FILE_LIST;
 
 
@@ -35,6 +39,7 @@ typedef struct settings
 #endif
     int first_file;               /**< About to process first file in directory */
     double man_gain;              /**< Apply Manual Gain entered by user */
+    double progress_total, progress_done;
     double album_peak;            /**< Will end up storing the highest value of the tracks analyzed */
     int audiophile;               /**< Calculate Album gain */
     int scale;                    /**< write Scale values to stdout */

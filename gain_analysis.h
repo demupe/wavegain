@@ -44,6 +44,9 @@ extern "C" {
 typedef double  Float_t;         // Type used for filtering
 
 int     InitGainAnalysis ( long samplefreq );
+/* After GAIN_ANALYSIS_ERROR the filter history and the current title's
+ * histogram are partially updated. Call ResetSampleFrequency() (keeps the album
+ * histogram) or InitGainAnalysis() (clears it) before analyzing again. */
 int     AnalyzeSamples   ( const Float_t* left_samples, const Float_t* right_samples, size_t num_samples, int num_channels );
 int		ResetSampleFrequency ( long samplefreq );
 Float_t   GetTitleGain     ( void );

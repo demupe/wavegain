@@ -148,8 +148,12 @@ int              first;
 static Uint32_t  A [STEPS_per_dB * MAX_dB];
 static Uint32_t  B [STEPS_per_dB * MAX_dB];
 
+// The 88.2 kHz row is from FFmpeg libavfilter/af_replaygain.c (freqinfos).
+// Its former Yule/Butter denominators both had poles outside the unit circle.
+// https://github.com/FFmpeg/FFmpeg/blob/master/libavfilter/af_replaygain.c
 // for each filter:
-// [0] 48 kHz, [1] 44.1 kHz, [2] 32 kHz, [3] 24 kHz, [4] 22050 Hz, [5] 16 kHz, [6] 12 kHz, [7] is 11025 Hz, [8] 8 kHz
+// [0..11]: 96000, 88200, 64000, 48000, 44100, 32000, 24000,
+//           22050, 16000, 12000, 11025, 8000 Hz
 
 #ifdef WIN32
 #ifndef __GNUC__
@@ -160,7 +164,7 @@ static Uint32_t  B [STEPS_per_dB * MAX_dB];
 #ifdef HAVE_SSE2
 __declspec(align(16)) static const Float_t ABYule[12][2*(YULE_ORDER + 2)] = {
     {0.006471345933032,  -0.02567678242161,  0.049805860704367,  -0.05823001743528,  0.040611847441914,  -0.010912036887501, -0.00901635868667,  0.012448886238123,  -0.007206683749426, 0.002167156433951,  -0.000261819276949,  0.0,    -7.22103125152679,  24.7034187975904,   -52.6825833623896,  77.4825736677539,   -82.0074753444205,  63.1566097101925,   -34.889569769245,   13.2126852760198,   -3.09445623301669,  0.340344741393305,  0.0, 0.0},
-    {0.015415414474287,  -0.07691359399407,  0.196677418516518,  -0.338855114128061, 0.430094579594561,  -0.415015413747894, 0.304942508151101,  -0.166191795926663, 0.063198189938739,  -0.015003978694525, 0.001748085184539,   0.0,    -7.19001570087017,  24.4109412087159,   -51.6306373580801,  75.3978476863163,   -79.4164552507386,  61.0373661948115,   -33.7446462547014,  12.8168791146274,   -3.01332198541437,  0.223619893831468,  0.0, 0.0},
+    {0.02667482047416, -0.11377479336097, 0.23063167910965, -0.30726477945593, 0.33188520686529, -0.33862680249063, 0.31807161531340, -0.23730796929880, 0.12273894790371, -0.03840017967282, 0.00549673387936, 0.00000000000000, -6.31836451657302, 18.31351310801799, -31.88210014815921, 36.53792146976740, -28.23393036467559, 14.24725258227189, -4.04670980012854, 0.18865757280515, 0.25420333563908, -0.06012333531065, 0.00000000000000, 0.00000000000000},
     {0.021776466467053,  -0.062376961003801, 0.107731165328514,  -0.150994515142316, 0.170334807313632,  -0.157984942890531, 0.121639833268721,  -0.074094040816409, 0.031282852041061,  -0.00755421235941,  0.00117925454213,    0.0,    -5.74819833657784,  16.246507961894,    -29.9691822642542,  40.027597579378,    -40.3209196052655,  30.8542077487718,   -17.5965138737281,  7.10690214103873,   -1.82175564515191,  0.223619893831468,  0.0, 0.0},
     {0.03857599435200,   -0.02160367184185,  -0.00123395316851,  -0.00009291677959,  -0.01655260341619,  0.02161526843274,   -0.02074045215285,  0.00594298065125,   0.00306428023191,   0.00012025322027,   0.00288463683916,    0.0,    -3.84664617118067,  7.81501653005538,   -11.34170355132042, 13.05504219327545,  -12.28759895145294, 9.48293806319790,   -5.87257861775999,  2.75465861874613,   -0.86984376593551,  0.13919314567432,   0.0, 0.0},
     {0.05418656406430,   -0.02911007808948,  -0.00848709379851,  -0.00851165645469,  -0.00834990904936,  0.02245293253339,   -0.02596338512915,  0.01624864962975,   -0.00240879051584,  0.00674613682247,   -0.00187763777362,   0.0,    -3.47845948550071,  6.36317777566148,   -8.54751527471874,  9.47693607801280,   -8.81498681370155,  6.85401540936998,   -4.39470996079559,  2.19611684890774,   -0.75104302451432,  0.13149317958808,   0.0, 0.0},
@@ -175,7 +179,7 @@ __declspec(align(16)) static const Float_t ABYule[12][2*(YULE_ORDER + 2)] = {
 
 __declspec(align(16)) static const Float_t ABButter[12][2*(BUTTER_ORDER + 1)] = {
     {0.99308203517541,   -1.98616407035082,  0.99308203517541,  0.0, -1.98611621154089,  0.986211929160751},
-    {0.992472550461293,  -1.98494510092258,  0.992472550461293, 0.0, -1.98488843762334,  0.979389350028798},
+    {0.99247255046129, -1.98494510092259, 0.99247255046129, 0.00000000000000, -1.98488843762335, 0.98500176422183},
     {0.989641019334721,  -1.97928203866944,  0.989641019334721, 0.0, -1.97917472731008,  0.979389350028798},
     {0.98621192462708,   -1.97242384925416,  0.98621192462708,  0.0, -1.97223372919527,  0.97261396931306},
     {0.98500175787242,   -1.97000351574484,  0.98500175787242,  0.0, -1.96977855582618,  0.97022847566350},
@@ -192,7 +196,7 @@ __declspec(align(16)) static const Float_t ABButter[12][2*(BUTTER_ORDER + 1)] = 
 
 static const Float_t ABYule[12][2*YULE_ORDER + 1] = {
 	{0.006471345933032, -7.22103125152679, -0.02567678242161,  24.7034187975904,   0.049805860704367, -52.6825833623896,  -0.05823001743528,  77.4825736677539,   0.040611847441914, -82.0074753444205,  -0.010912036887501, 63.1566097101925,  -0.00901635868667,  -34.889569769245,    0.012448886238123, 13.2126852760198,  -0.007206683749426, -3.09445623301669,  0.002167156433951, 0.340344741393305, -0.000261819276949},
-	{0.015415414474287, -7.19001570087017, -0.07691359399407,  24.4109412087159,   0.196677418516518, -51.6306373580801,  -0.338855114128061, 75.3978476863163,   0.430094579594561, -79.4164552507386,  -0.415015413747894, 61.0373661948115,   0.304942508151101, -33.7446462547014,  -0.166191795926663, 12.8168791146274,   0.063198189938739, -3.01332198541437, -0.015003978694525, 0.223619893831468,  0.001748085184539},
+	{0.02667482047416, -6.31836451657302, -0.11377479336097, 18.31351310801799, 0.23063167910965, -31.88210014815921, -0.30726477945593, 36.53792146976740, 0.33188520686529, -28.23393036467559, -0.33862680249063, 14.24725258227189, 0.31807161531340, -4.04670980012854, -0.23730796929880, 0.18865757280515, 0.12273894790371, 0.25420333563908, -0.03840017967282, -0.06012333531065, 0.00549673387936},
 	{0.021776466467053, -5.74819833657784, -0.062376961003801, 16.246507961894,    0.107731165328514, -29.9691822642542,  -0.150994515142316, 40.027597579378,    0.170334807313632, -40.3209196052655,  -0.157984942890531, 30.8542077487718,   0.121639833268721, -17.5965138737281,  -0.074094040816409,  7.10690214103873,  0.031282852041061, -1.82175564515191, -0.00755421235941,  0.223619893831468,  0.00117925454213 },
     {0.03857599435200,  -3.84664617118067, -0.02160367184185,   7.81501653005538, -0.00123395316851,  -11.34170355132042, -0.00009291677959,  13.05504219327545, -0.01655260341619,  -12.28759895145294,  0.02161526843274,   9.48293806319790, -0.02074045215285,   -5.87257861775999,  0.00594298065125,   2.75465861874613,  0.00306428023191,  -0.86984376593551,  0.00012025322027,  0.13919314567432,   0.00288463683916 },
     {0.05418656406430,  -3.47845948550071, -0.02911007808948,   6.36317777566148, -0.00848709379851,   -8.54751527471874, -0.00851165645469,   9.47693607801280, -0.00834990904936,   -8.81498681370155,  0.02245293253339,   6.85401540936998, -0.02596338512915,   -4.39470996079559,  0.01624864962975,   2.19611684890774, -0.00240879051584,  -0.75104302451432,  0.00674613682247,  0.13149317958808,  -0.00187763777362 },
@@ -207,7 +211,7 @@ static const Float_t ABYule[12][2*YULE_ORDER + 1] = {
 
 static const Float_t ABButter[12][2*BUTTER_ORDER + 1] = {
 	{0.99308203517541, -1.98611621154089, -1.98616407035082,  0.986211929160751, 0.99308203517541 },
-	{0.992472550461293,-1.98488843762334, -1.98494510092258,  0.979389350028798, 0.992472550461293},
+	{0.99247255046129, -1.98488843762335, -1.98494510092259, 0.98500176422183, 0.99247255046129},
 	{0.989641019334721,-1.97917472731008, -1.97928203866944,  0.979389350028798, 0.989641019334721},
     {0.98621192462708, -1.97223372919527, -1.97242384925416,  0.97261396931306,  0.98621192462708 },
     {0.98500175787242, -1.96977855582618, -1.97000351574484,  0.97022847566350,  0.98500175787242 },
@@ -232,9 +236,24 @@ static const Float_t ABButter[12][2*BUTTER_ORDER + 1] = {
 // If your compiler complains that "'operation on 'output' may be undefined", you can
 // either ignore the warnings or uncomment the three "y" lines (and comment out the indicated line)
 
+/* The filters are evaluated without FP contraction (no fused multiply-add), so
+ * every compiler and ISA rounds each product and sum exactly as written. This
+ * makes the scalar and paired stereo paths bitwise identical by definition.
+ * GCC keeps per-function optimize options through LTO; Clang uses a block pragma. */
+#if defined(__clang__)
+# define FILTER_NO_CONTRACT _Pragma("clang fp contract(off)")
+#else
+# define FILTER_NO_CONTRACT
+#endif
+#if defined(__GNUC__) && !defined(__clang__)
+# pragma GCC push_options
+# pragma GCC optimize ("fp-contract=off")
+#endif
+
 static void
 filterYule(const Float_t* input, Float_t* output, size_t nSamples, const Float_t* kernel)
 {
+    FILTER_NO_CONTRACT
 #ifdef HAVE_SSE2
 
     __m128d __kernel, __result, __temp;
@@ -285,7 +304,7 @@ filterYule(const Float_t* input, Float_t* output, size_t nSamples, const Float_t
         *output =  1e-10  /* 1e-10 is a hack to avoid slowdown because of denormals */
                 + __temp2[0]
                 + __temp2[1]
-                + input [-10] * kernel[11];
+                + input [-10] * kernel[10]; /* b10; kernel[11] is padding */
                 ;
 
         ++output;
@@ -314,7 +333,8 @@ filterYule(const Float_t* input, Float_t* output, size_t nSamples, const Float_t
 
 static void
 filterButter(const Float_t* input, Float_t* output, size_t nSamples, const Float_t* kernel)
-{   
+{
+    FILTER_NO_CONTRACT
 #ifdef HAVE_SSE2
     __m128d __kernel, __result, __temp;
     __declspec(align(16)) Float_t __temp2[2];
@@ -347,6 +367,90 @@ filterButter(const Float_t* input, Float_t* output, size_t nSamples, const Float
 #endif
 }
 
+
+/* Independent stereo lanes preserve each scalar expression's operation order.
+ * Keep this unrolled expression identical to scalar; with contraction disabled
+ * above, both paths perform the same IEEE operations on every compiler.
+ * Use verified-release to check bitwise equality with the exact build flags.
+ * Define WAVEGAIN_FILTER_SIMD=0 to force the scalar reference path. */
+#if (defined(__clang__) || (defined(__GNUC__) && __GNUC__ >= 5)) && \
+    (defined(__aarch64__) || (defined(__x86_64__) && defined(__SSE2__)))
+# define WAVEGAIN_FILTER_PAIR_SUPPORTED 1
+#endif
+#ifndef WAVEGAIN_FILTER_SIMD
+# if defined(WAVEGAIN_FILTER_PAIR_SUPPORTED) && \
+     !defined(__FAST_MATH__) && !defined(HAVE_SSE2)
+#  define WAVEGAIN_FILTER_SIMD 1
+# else
+#  define WAVEGAIN_FILTER_SIMD 0
+# endif
+#endif
+#if WAVEGAIN_FILTER_SIMD && !defined(HAVE_SSE2) && \
+    !defined(__FAST_MATH__) && defined(WAVEGAIN_FILTER_PAIR_SUPPORTED)
+#define WAVEGAIN_HAVE_FILTER_PAIR 1
+typedef double filter_pair __attribute__((vector_size(16)));
+#define PAIR_AT(left, right, offset) \
+    ((filter_pair){(left)[offset], (right)[offset]})
+
+static void
+filterYulePair(const Float_t *left, const Float_t *right,
+               Float_t *outleft, Float_t *outright, size_t count,
+               const Float_t *kernel)
+{
+    FILTER_NO_CONTRACT
+    while (count--) {
+        filter_pair result = 1e-10 + PAIR_AT(left, right, 0) * kernel[0]
+            - PAIR_AT(outleft, outright, -1) * kernel[1]
+            + PAIR_AT(left, right, -1) * kernel[2]
+            - PAIR_AT(outleft, outright, -2) * kernel[3]
+            + PAIR_AT(left, right, -2) * kernel[4]
+            - PAIR_AT(outleft, outright, -3) * kernel[5]
+            + PAIR_AT(left, right, -3) * kernel[6]
+            - PAIR_AT(outleft, outright, -4) * kernel[7]
+            + PAIR_AT(left, right, -4) * kernel[8]
+            - PAIR_AT(outleft, outright, -5) * kernel[9]
+            + PAIR_AT(left, right, -5) * kernel[10]
+            - PAIR_AT(outleft, outright, -6) * kernel[11]
+            + PAIR_AT(left, right, -6) * kernel[12]
+            - PAIR_AT(outleft, outright, -7) * kernel[13]
+            + PAIR_AT(left, right, -7) * kernel[14]
+            - PAIR_AT(outleft, outright, -8) * kernel[15]
+            + PAIR_AT(left, right, -8) * kernel[16]
+            - PAIR_AT(outleft, outright, -9) * kernel[17]
+            + PAIR_AT(left, right, -9) * kernel[18]
+            - PAIR_AT(outleft, outright, -10) * kernel[19]
+            + PAIR_AT(left, right, -10) * kernel[20];
+        *outleft++ = result[0];
+        *outright++ = result[1];
+        left++; right++;
+    }
+}
+
+static void
+filterButterPair(const Float_t *left, const Float_t *right,
+               Float_t *outleft, Float_t *outright, size_t count,
+               const Float_t *kernel)
+{
+    FILTER_NO_CONTRACT
+    while (count--) {
+        filter_pair result = PAIR_AT(left, right, 0) * kernel[0]
+            - PAIR_AT(outleft, outright, -1) * kernel[1]
+            + PAIR_AT(left, right, -1) * kernel[2]
+            - PAIR_AT(outleft, outright, -2) * kernel[3]
+            + PAIR_AT(left, right, -2) * kernel[4];
+        *outleft++ = result[0];
+        *outright++ = result[1];
+        left++; right++;
+    }
+}
+
+#undef PAIR_AT
+#endif
+
+#if defined(__GNUC__) && !defined(__clang__)
+# pragma GCC pop_options
+#endif
+#undef FILTER_NO_CONTRACT
 
 // returns a INIT_GAIN_ANALYSIS_OK if successful, INIT_GAIN_ANALYSIS_ERROR if not
 
@@ -461,11 +565,21 @@ AnalyzeSamples ( const Float_t* left_samples, const Float_t* right_samples, size
             curright = right_samples + cursamplepos;
         }
 
-        YULE_FILTER ( curleft , lstep + totsamp, cursamples, ABYule[freqindex]);
-        YULE_FILTER ( curright, rstep + totsamp, cursamples, ABYule[freqindex]);
+#ifdef WAVEGAIN_HAVE_FILTER_PAIR
+        if (num_channels == 2) {
+            filterYulePair(curleft, curright, lstep+totsamp, rstep+totsamp,
+                           cursamples, ABYule[freqindex]);
+            filterButterPair(lstep+totsamp, rstep+totsamp, lout+totsamp, rout+totsamp,
+                             cursamples, ABButter[freqindex]);
+        } else
+#endif
+        {
+            YULE_FILTER ( curleft , lstep + totsamp, cursamples, ABYule[freqindex]);
+            YULE_FILTER ( curright, rstep + totsamp, cursamples, ABYule[freqindex]);
 
-        BUTTER_FILTER ( lstep + totsamp, lout + totsamp, cursamples, ABButter[freqindex]);
-        BUTTER_FILTER ( rstep + totsamp, rout + totsamp, cursamples, ABButter[freqindex]);
+            BUTTER_FILTER ( lstep + totsamp, lout + totsamp, cursamples, ABButter[freqindex]);
+            BUTTER_FILTER ( rstep + totsamp, rout + totsamp, cursamples, ABButter[freqindex]);
+        }
 
         curleft = lout + totsamp;                   // Get the squared values
         curright = rout + totsamp;
@@ -595,9 +709,14 @@ AnalyzeSamples ( const Float_t* left_samples, const Float_t* right_samples, size
 #else
             val = (Float_t)STEPS_per_dB * 10. * log10 ( (lsum+rsum) / totsamp * 0.5 + 1.e-37 );
 #endif
-            ival = (int) val;
-            if ( ival <                     0 ) ival = 0;
-            if ( ival >= (int)(sizeof(A)/sizeof(*A)) ) ival = sizeof(A)/sizeof(*A) - 1;
+            /* Reject filter/energy overflow before a non-finite-to-int cast.
+             * Clamp finite out-of-range levels before conversion as well.
+             * State is left partially updated; callers must reset (see header). */
+            if (!isfinite(val)) return GAIN_ANALYSIS_ERROR;
+            if (val < 0.) ival = 0;
+            else if (val >= (double)(sizeof(A)/sizeof(*A)))
+                ival = sizeof(A)/sizeof(*A) - 1;
+            else ival = (int)val;
             A [ival]++;
 #ifdef HAVE_SSE2
             lrsum = _mm_setzero_pd();

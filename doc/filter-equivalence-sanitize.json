@@ -1,0 +1,17 @@
+{
+  "compiler": "Apple clang version 21.0.0 (clang-2100.3.34.2)",
+  "flags": "-O2 -fsanitize=address,undefined,float-cast-overflow -fno-sanitize-recover=all -fno-omit-frame-pointer",
+  "runs": {
+    "scalar": {
+      "sha256": "920c08e3abb1fa62b5ed2ea83987c2cba6be7373b05b943bde72b350ed237bea",
+      "bytes": 37374744,
+      "diagnostic": "Filters: 12 rates, kernel bits, mono/stereo API state/histograms, chunks, album resets and non-finite guards passed (SIMD=0).\n"
+    },
+    "default": {
+      "sha256": "920c08e3abb1fa62b5ed2ea83987c2cba6be7373b05b943bde72b350ed237bea",
+      "bytes": 37374744,
+      "diagnostic": "Filters: 12 rates, kernel bits, mono/stereo API state/histograms, chunks, album resets and non-finite guards passed (SIMD=1).\n"
+    }
+  },
+  "bitwise_equal": true
+}
