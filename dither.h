@@ -35,6 +35,8 @@ extern double              scalar16 ( const float* x, const float* y );
 extern double              Random_Equi ( double mult );
 extern double              Random_Triangular ( double mult );
 void                       Init_Dither ( int bits, int shapingtype );
+void Init_Rate_Dither(long rate, int shapingtype);
+Int64_t Rate_Dither(double sum, int channel, int bits);
 
 #ifdef __cplusplus
 }

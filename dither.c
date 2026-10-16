@@ -9,6 +9,8 @@
  */
 #include "dither.h"
 #include <string.h>
+#include <math.h>
+#include <stdint.h>
 
 static const  unsigned char    Parity [256] = {  // parity
 	0,1,1,0,1,0,0,1,1,0,0,1,0,1,1,0,1,0,0,1,0,1,1,0,0,1,1,0,1,0,0,1,
@@ -182,3 +184,28 @@ Init_Dither ( int bits, int shapingtype )
 
 
 
+
+/* Optional first-order error feedback. The pole-free noise transfer function
+ * 1-a*z^-1 keeps the feedback bounded; a follows a physical frequency knee. */
+static double rate_feedback, rate_error[2];
+void Init_Rate_Dither(long rate, int shapingtype)
+{
+	static const double knee[] = {0., 10000., 6000., 3000.};
+	if (shapingtype < 0) shapingtype = 0;
+	if (shapingtype > 3) shapingtype = 3;
+	rate_feedback = shapingtype ? exp(-6.2831853071795864769 * knee[shapingtype] / rate) : 0.;
+	rate_error[0] = rate_error[1] = 0.;
+}
+
+Int64_t Rate_Dither(double sum, int channel, int bits)
+{
+	double step = ldexp(1., 32 - bits), limit = ldexp(1., bits - 1);
+	double noise = ((double)(int32_t)random_int() + (double)(int32_t)random_int()) / 4294967296.;
+	double input = fmax(-2147483648., fmin(2147483648., sum)) / step - rate_feedback * rate_error[channel];
+	double value = floor(input + noise + .5);
+	if (value < -limit || value > limit - 1.) {
+		value = fmax(-limit, fmin(limit - 1., value));
+		rate_error[channel] = 0.;
+	} else rate_error[channel] = value - input;
+	return (Int64_t)value;
+}

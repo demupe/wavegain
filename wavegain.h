@@ -19,3 +19,6 @@ extern double corrected_peak(const FILE_LIST *file, const double *dc, const SETT
 extern double selected_gain(double raw_gain, double peak, const SETTINGS *settings);
 extern void report_gain(FILE_LIST *file, const double *dc, SETTINGS *settings);
 extern double audio_duration(const char *filename, const SETTINGS *settings);
+
+extern int measure_file(FILE_LIST *file, const double *dc, const SETTINGS *settings);
+extern double true_peak_gain(const FILE_LIST *file, const SETTINGS *settings);

@@ -1,3 +1,27 @@
+Feature follow-up (unreleased; base v1.4.5):
+- [FIXED] PR review: preserve normal POSIX permissions on separate outputs,
+    use exclusive rename/link/copy publication across filesystem capabilities,
+    and keep zero DC offset display consistent with v1.4.5 (no negative zero).
+- [IMPLEMENTED] Separate --output / --output-dir with no-clobber publication
+    and relative recursive layout; originals are retained.
+- [IMPLEMENTED] DC-corrected true-peak measurement/ceiling and verification
+    of actual quantized output before publication.
+- [IMPLEMENTED] Exact-block BS.1770 integrated LUFS with pooled album gating,
+    explicit targets and manual-only treatment of below-gate material.
+- [IMPLEMENTED] 176.4/192 kHz input: analysis-only FIR decimation for legacy
+    ReplayGain; source-rate LUFS/true peak; unchanged output rate/frame count.
+- [IMPLEMENTED] Optional rate-aware TPDF/first-order dither family; existing
+    F44 family remains the default. Listening evaluation remains open.
+- [IMPLEMENTED] R128Net-inspired C kernel optimizations with native reference
+    equality tests. Details: doc/loudness-implementation.md.
+- [IMPLEMENTED] Further native improvements: expression-preserving stereo
+    block-energy SIMD and a peak-only adapter bypass for loudness filtering.
+    Three-way reference/previous/current equality and CPU benchmarks recorded.
+- [OPEN] Native Windows validation for new output paths and measurement modes.
+- [OPEN] Evaluate additional R128Net screening/dense-loop optimizations using
+    the reference equality gate; synthetic CPU benchmarks are not end-to-end
+    throughput claims. No .NET runtime dependency is introduced.
+
 Safety review follow-up: 2026-10-16 (base commit ef3efeb).
 Report: doc/code-review-2026-10-16.md
 Reproduce: make check; make check-sanitize; make check-interop
@@ -21,10 +45,9 @@ Reproduce: make check; make check-sanitize; make check-interop
 - [DONE] Serialize clean/build for debug/release/asan under parallel make;
     include UBSan and add make check-sanitize. Restore working directories
     on traversal errors and avoid recursive POSIX directory symlink cycles.
-- [OPEN] Sound-quality extensions from the review: sample-rate-specific
-    noise-shaping evaluation, optional true peak/headroom and post-limiter
-    output measurements. Ordinary audio output is retained; extreme overdrive
-    now saturates before integer quantization and noise-shaping history.
+- [FOLLOW-UP ABOVE] Sound-quality extensions: the optional rate dither,
+    true-peak/headroom and output-peak measurement are implemented in the
+    unreleased feature branch. Ordinary legacy output remains unchanged.
 - [OPEN] Encapsulate analysis/dither globals before library or parallel use.
     The existing non-UTF-8 license comment is unchanged; Clang's debug build
     still reports its encoding warning. License-header cleanup remains open.

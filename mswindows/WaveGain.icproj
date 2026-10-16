@@ -90,6 +90,18 @@
 				</FileConfiguration>
 			</File>
 			<File
+				RelativePath="..\loudness.c"
+			>
+			</File>
+			<File
+				RelativePath="..\output.c"
+			>
+			</File>
+			<File
+				RelativePath="..\resample.c"
+			>
+			</File>
+			<File
 				RelativePath="..\main.c"
 				>
 				<FileConfiguration

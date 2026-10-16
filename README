@@ -1,146 +1,212 @@
-ReplayGain for wave files, v1.4.5
+WaveGain v1.5.0
+===============================================================================
 
-WaveGain is an application of the ReplayGain algorithms to standard PCM wave
-files. Calculated gain adjustments are applied directly to the audio data,
-instead of just writing metadata as traditionally done for other formats
-like MP3, FLAC and Ogg Vorbis.
+Japanese documentation / 日本語版: [README.ja.md](README.ja.md)
 
-The replaygain values can also be added as metadata in a custom RIFF chunk
-named 'gain'. This could theoretically allow WAV files to have same lossless
-functionality as other formats where audio data is not altered. But since no
-current players are aware of this "standard", the metadata is used only by
-WaveGain for the "--undo-gain" feature, which is lossy.
+WaveGain measures and adjusts the loudness of mono and stereo audio files.
+It supports ReplayGain and BS.1770 integrated loudness (LUFS), with optional
+true-peak protection. Gain is applied directly to the audio samples.
 
+By default, WaveGain only calculates and reports gain. Use -y to apply gain
+to the input, or add --output / --output-dir to retain the original files.
+Applying gain and undoing it are lossy.
 
-About replaygain
+Features
 -------------------------------------------------------------------------------
+* Track or album loudness adjustment using ReplayGain or integrated LUFS.
+* True-peak measurement and an explicit output ceiling.
+* Separate output files, including recursive directory processing.
+* WAV, RF64 and Sony Wave64; limited 16-bit AIFF/AIFC support.
+* 8- to 32-bit integer PCM and floating-point audio, at 14 sample rates
+  from 8 to 192 kHz.
+* Legacy dither and an optional sample-rate-dependent dither family.
 
-Replaygain is a standard that allows compatible players to play audio files with
-an adjusted volume gain so they have a consistent perceived loudness.
-
-It is similar in concept to Normalization, but instead of using just the peak
-value to calculate the gain, it relies on RMS (sound pressure "power") values
-and psychoacoustics models to calculate a gain based on the perceived loudness
-of an audio file by a human listener.
-
-Loudness can be averaged either for each individual file, also called "Track" or
-"Radio" mode, where every song is adjusted to the same standard loudness; or by
-group, also called "Album" mode, where individual "songs" may sound louder or
-quieter than others, but each "album" as a whole has the same average loudness
-as other albums.
-
-For more information,
-http://en.wikipedia.org/wiki/ReplayGain
-http://wiki.hydrogenaudio.org/index.php?title=Replaygain
-http://wiki.hydrogenaudio.org/index.php?title=ReplayGain_specification
-
-
-The saga of a Debian package for wavegain:
+Quick start
 -------------------------------------------------------------------------------
+Run these commands after building WaveGain, or use wavegain instead of
+./wavegain if it is installed on your PATH.
 
-- Current source code (in .zip format) and windows binaries are published at
-	http://www.rarewares.org/others.php
-	http://www.rarewares.org/files/others/
+Calculate ReplayGain without changing the input:
 
-- An i386 binary .deb for version 1.2.6 (from 2005) was published at
-	http://www.rarewares.org/debian/packages/unstable/index.php
+    ./wavegain input.wav
 
-- Later, Linux Mint hosted the source, amd64 and i386 packages for v1.2.8 (2010)
-	http://packages.linuxmint.com/pool/import/w/wavegain/
+Apply ReplayGain to a separate file:
 
-This package is a combination of current upstream source, a proper Debian
-packaging improved from the Mint release, and some patches to fix some
-(serious) Linux issues.
+    ./wavegain -y --output normalized.wav input.wav
 
+Normalize to -23 LUFS with a -1 dBTP ceiling:
 
-Install how-to
+    ./wavegain -y --target-lufs -23 --peak-ceiling -1 --output out.wav in.wav
+
+Apply one album gain while preserving the tracks' relative loudness:
+
+    ./wavegain -y -a --output-dir normalized track1.wav track2.wav
+
+Process a directory recursively, with each folder treated as an album:
+
+    ./wavegain -y -a -z --output-dir ../normalized ./album
+
+Select 24-bit output with sample-rate-dependent medium noise shaping:
+
+    ./wavegain -y -b 3 -d 3 --dither-profile rate --output out.wav in.wav
+
+Store the applied gain for a later, lossy undo (these commands rewrite input):
+
+    ./wavegain -y -w recording.w64
+    ./wavegain --undo-gain recording.w64
+
+Separate output never replaces an existing destination. --output accepts one
+explicit input file; --output-dir supports multiple files and preserves
+relative subdirectories during recursive processing. Its output root must be
+outside the input directories. See the full option reference below.
+
+On POSIX, separate output inherits the input's ordinary access permissions,
+without copying owner/group or special mode bits. Where neither exclusive
+rename nor hard links work (for example, some exFAT/SMB implementations),
+output is copied into an exclusively created destination. That fallback can
+be visible while copying, requires space for both files, and retains an
+incomplete destination plus the completed temporary on failure.
+
+Loudness, peaks and dither
 -------------------------------------------------------------------------------
+ReplayGain is the default. It estimates perceived loudness using weighting
+filters and audio energy rather than normalizing only the highest sample.
+Track mode adjusts each file independently. Album mode applies one gain to
+preserve relative loudness between tracks.
 
-There are 2 approaches: you can build and install a .deb package, or simply
-compile and install from source. For both I assume you are already at the
-source directory (which is not the root directory of the cloned repository)
+--lufs selects BS.1770 integrated loudness with a default target of -23 LUFS.
+--target-lufs changes that target and also selects LUFS mode. Album LUFS uses
+a common gate over the tracks' block energies, rather than averaging their
+LUFS values. LUFS needs at least 400 ms of audio; silence and material below
+the absolute gate receive only the requested manual gain.
 
-Debian method:
-This is OUTDATED, UNMAINTANED and NON-WORKING! Use Traditional Method instead!
-$ sudo apt-get install devscripts # if you don't already have debuild
-$ debuild -- binary && sudo dpkg --install ../wavegain_*.deb
+--true-peak enables true-peak measurement and a default ceiling of -1 dBTP.
+--peak-ceiling sets a different ceiling and also enables true-peak measurement.
+An explicit ceiling remains active with -n (--noclip). Quantized output is
+measured again before file publication; exceeding the ceiling prevents
+replacement. Peak prevention may leave output below the requested LUFS target.
+With --stdout, already-emitted audio cannot be retracted; a failed final check
+returns a nonzero exit status.
 
-Traditional method:
-$ make && sudo make install # by default installs to /usr/local/bin/wavegain
-or
-$ make && sudo make install prefix=/usr # to install to /usr/bin/wavegain
+DC correction is track-based by default; -q selects album DC correction and
+-p disables it. With -p, LUFS and true-peak measurement share the first
+analysis read. Measuring after DC correction requires another read.
 
-The default build uses the compiler's native architecture (including 64-bit).
-PCM samples use fixed-width 32-bit storage, and POSIX builds enable 64-bit file
-offsets, so WAV files larger than 2 GiB and 4 GiB are processed in full.
-WAV files whose sizes are 0xFFFFFFFF (written to a pipe, or "oversized" WAV
-over 4 GiB) are read to the end of the file. RF64 input is supported.
-Sony Wave64 (.w64) input and output are also supported, with 64-bit chunk
-sizes and sample counts. Wave64 input is detected by its GUIDs and remains
-Wave64 when gain is applied, including when -b changes the PCM format.
+Legacy ReplayGain analyzes 176.4/192 kHz input through a 2:1 low-pass FIR
+decimator. LUFS and true peak use the source rate. Output sample rate and
+frame count are preserved.
 
-To explicitly request a 32-bit build on an x86 toolchain, use:
+The default dither profile is legacy. --dither-profile rate requires -d 1..4
+and integer output; it uses TPDF noise with optional first-order error
+feedback adjusted to the sample rate. Existing ReplayGain rates and legacy
+dither retain their original processing paths unless new options are selected.
 
-    make CFLAGS=-m32
+The measurement engine bundles MIT-licensed libebur128 with C optimizations
+inspired by R128Net, plus stereo block-energy SIMD and a peak-only processing
+path. No installed libebur128 or .NET runtime is needed. Implementation,
+licenses, performance measurements and precision limits are documented in
+doc/loudness-implementation.md.
 
-This may require multilib headers and libraries, e.g. gcc-multilib on Debian.
-Run the PCM and large-file regression tests with `make check`.
+Supported formats and large files
+-------------------------------------------------------------------------------
+WAV and Wave64 support mono/stereo integer PCM and floating-point audio at
+8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000, 64000, 88200,
+96000, 176400 and 192000 Hz. Compressed codecs are unsupported. 16-bit integer
+AIFF/AIFC input is also supported. -b selects the output sample format;
+-b 6 selects 16-bit AIFF, which retains its 32-bit container-size limit.
 
-Wave64 examples:
+WAV / RF64:
+* POSIX builds use 64-bit file offsets and process files larger than 4 GiB.
+* WAV output larger than 4 GiB uses 0xFFFFFFFF RIFF/data sizes and emits a
+  warning. --rf64 reserves a JUNK chunk and converts it to ds64 only when
+  needed, so smaller output remains ordinary RIFF/WAV.
+* --rf64 requires seekable output and is ignored with --stdout. RF64 input
+  is supported and follows the same output-size rules when rewritten.
+* On seekable input, sentinel sizes or data extending past EOF are read to
+  the end of the file. Stdin size validation remains strict.
 
-    wavegain recording.w64             # calculate gain
-    wavegain -y recording.w64          # apply gain in the same container
-    wavegain -y -w recording.w64       # also store the applied gain
-    wavegain --undo-gain recording.w64 # reverse the stored gain (lossy)
-    wavegain -y -b 3 recording.w64     # convert samples to 24-bit PCM
+Sony Wave64:
+* Input is detected by its GUIDs. Wave64 remains Wave64 when applying gain
+  or changing PCM format, unless AIFF output is explicitly selected.
+* Container/chunk sizes and sample counts use 64-bit fields. A format chunk
+  must precede a single audio data chunk.
+* Unknown chunks before and after audio are preserved with bounded-memory
+  copying. 'fact' and 'gain' are rewritten before audio; stale 'levl' peak
+  summaries are dropped.
+* Seekable input with unfinalized or truncated sizes is accepted with a
+  warning. Stdin remains strict.
+* There is no WAV-to-Wave64 output option; use an external converter to
+  create the initial .w64 file.
 
-Wave64 supports the same mono/stereo PCM and sample rates as WAV. Unknown
-chunks before and after audio are preserved with bounded-memory copying.
-'fact' and gain chunks are rewritten before the audio, and 'levl' peak
-summaries (stale after a gain change) are dropped, wherever they appear.
-On seekable input, container or data sizes that were never finalized (for
-example a file written to a pipe) or that exceed a truncated file are
-accepted with a warning, like the WAV reader; stdin input stays strict.
-The WaveGain gain extension uses a private GUID
-(e217d848-96be-4ac0-b56a-8b46289c71e0), containing a little-endian IEEE double.
-Files must contain a format chunk before a single audio data chunk; compressed
-codecs remain unsupported. -b 6 explicitly selects AIFF output and
-retains that format's 32-bit size limit. No WAV-to-Wave64 conversion option is
-provided; use an external converter to create the initial .w64 file.
+The optional 'gain' chunk stores the applied scale for --undo-gain. It is a
+WaveGain extension, not a player loudness tag. Wave64 uses the private GUID
+(e217d848-96be-4ac0-b56a-8b46289c71e0) with a little-endian IEEE double.
+On macOS, the WAV 'gain' scale is stored big-endian (an upstream choice), so
+WAV undo metadata is not interchangeable with other platforms.
 
-WAV output over 4 GiB, which RIFF's 32-bit sizes cannot describe, is written
-as before with its RIFF and data sizes set to 0xFFFFFFFF (an "oversized" WAV
-that most tools read to the end of the file), with a warning. With --rf64 such
-output is written as EBU RF64 instead: a JUNK chunk is reserved after the
-header and becomes the ds64 chunk with 64-bit sizes only when the output
-exceeds 4 GiB, so smaller output stays a plain RIFF/WAV file. --rf64 needs a
-seekable output and is ignored with --stdout. RF64 input is rewritten the same
-way, so it stays RF64 when it is still over 4 GiB.
+Use '-' for stdin in calculation mode. LUFS/true-peak stdin measurement also
+requires -p and finalized container sizes. Applying gain requires file input.
 
-Windows binaries can be built with MinGW-w64 GCC (for example in an MSYS2
-MINGW64 shell) using the same Makefile; it produces wavegain.exe. Release
-builds link libssp statically for _FORTIFY_SOURCE, so the .exe needs only
-system DLLs. The MinGW build was checked under Wine (regression tests,
-scalar/SIMD filter equality and output identical to a native build); runtime
-on native Windows has not been verified yet. On macOS the 'gain' chunk scale
-is stored big-endian (an upstream choice), so files written with -w on macOS
-and on other platforms are not interchangeable for --undo-gain.
+Build and install
+-------------------------------------------------------------------------------
+Build from the repository root with a C compiler and make:
 
-`make check` includes sparse 5 GiB Wave64 input/output, padding, metadata,
-PCM/float, extensible format, gain and malformed-size regressions. Optional
-FFmpeg interoperability checks can be run with `make check-interop`.
+    make
 
-`make verified-release` builds a release binary and compares the ReplayGain
-filter state and complete conversion output against a scalar build made with
-the same compiler and flags, deleting the binary on any mismatch.
-VERIFY_SIMD=auto (default) accepts either filter backend, VERIFY_SIMD=1
-requires the paired stereo SIMD backend and VERIFY_SIMD=0 requires scalar.
+The default release build uses the compiler's native architecture, including
+64-bit targets. PCM storage uses fixed-width 32-bit types. For an explicit
+32-bit x86 build, use make CFLAGS=-m32; this may require multilib headers and
+libraries, such as gcc-multilib on Debian.
 
+Install to /usr/local/bin, or override the prefix:
+
+    sudo make install
+    sudo make install prefix=/usr
+
+The install target uses GNU-style install options. On macOS, the built binary
+can also be copied to a directory on your PATH.
+
+Windows builds can use MinGW-w64 GCC in an MSYS2 MINGW64 shell with the same
+Makefile, or the project files in mswindows/. MinGW release builds link libssp
+statically for _FORTIFY_SOURCE and need only system DLLs. Earlier MinGW builds
+were checked under Wine; the new output and measurement modes have not been
+verified on native Windows. Debian packaging in debian/ is historical and
+unmaintained; build from source rather than relying on the old debuild recipe.
+
+Tests and development
+-------------------------------------------------------------------------------
+    make debug              # build with additional compiler warnings
+    make check              # run the regression gate (Python 3 required)
+    make check-sanitize     # rebuild and test with ASan/UBSan
+    make check-interop      # compare with FFmpeg (ffmpeg/ffprobe required)
+    make verified-release   # release build with ReplayGain verification
+    make check-loudness     # compare loudness kernels with native reference
+
+Tests cover PCM/float conversion, gain/undo, metadata, malformed files, sparse
+large files (including 5 GiB Wave64), output paths, loudness, true-peak ceilings,
+resampling and dither signal properties. Open validation work is listed in TODO.
+
+verified-release compares ReplayGain filter state and complete conversion
+output with a scalar build using the same compiler and flags, and removes
+the binary on mismatch. VERIFY_SIMD=auto accepts either backend (default);
+VERIFY_SIMD=1 requires paired stereo SIMD and VERIFY_SIMD=0 requires scalar.
+
+CLI help and manuals come from doc/help.json. After editing it, run make docs.
+make check-docs verifies the generated README help, help_generated.h, man page
+and HTML manual. Do not edit the option reference below directly.
 
 Behavior changes
 -------------------------------------------------------------------------------
-Results can differ from earlier releases for the same input:
+Version 1.5.0:
+* Separate output paths preserve originals and refuse existing destinations.
+  Ordinary input permissions are retained on POSIX; filesystems without
+  exclusive rename or hard links use an exclusive-copy fallback.
+* LUFS can be selected instead of ReplayGain, with pooled album gating.
+* True-peak ceilings remain active with --noclip and are checked after
+  quantization; they can prevent reaching a requested LUFS target.
+* 176.4/192 kHz input and an optional rate-aware dither profile are supported.
 
+Earlier releases and compatibility notes:
 * WAV headers are updated at validated chunk boundaries. Opaque metadata
   containing strings such as "fmt " is preserved, and odd-length RIFF chunks
   and data padding are handled when reading and converting sample formats.
@@ -174,39 +240,47 @@ Results can differ from earlier releases for the same input:
   for this change, but RMS accumulation and log10 are outside this rule, so
   identical gains across all compilers and architectures are not guaranteed.
 
-Pre-compiled binaries and old versions
+Project history and references
 -------------------------------------------------------------------------------
-You can find pre-compiled .DEB binariy packages for i386 and amd64, as well
-as as some other goodies, like a mega-archive of all previous versions
-and a (lame and outdated) html manual in the Downloads section of GitHub:
+This repository builds on John Edwards' WaveGain and the Debian packaging
+work by Rodrigo Silva (MestreLion). Historical source and binary archives:
 
-https://github.com/MestreLion/wavegain/downloads
+    http://www.rarewares.org/others.php
+    http://www.rarewares.org/files/others/
+    http://www.rarewares.org/debian/packages/unstable/index.php
+    http://packages.linuxmint.com/pool/import/w/wavegain/
+    https://github.com/MestreLion/wavegain/downloads
 
+These include older Windows binaries and Debian/Linux Mint packages, such as
+WaveGain 1.2.6 and 1.2.8. They describe earlier releases, not the current build.
+
+Background on ReplayGain:
+
+    https://en.wikipedia.org/wiki/ReplayGain
+    https://wiki.hydrogenaudio.org/index.php?title=ReplayGain
+    https://wiki.hydrogenaudio.org/index.php?title=ReplayGain_specification
 
 License and copyright
 -------------------------------------------------------------------------------
-
 WaveGain is Copyright (c) 2002-2010 John Edwards <john.edwards33@ntlworld.com>,
-a.k.a. John33, and several other co-authors and contributors are mentioned as
-Copyright owners in the source files.
+a.k.a. John33. Other co-authors and contributors are identified in the source
+files. WaveGain was originally released under LGPL-2.1 or later; COPYING
+contains the LGPL-2.1 text. Some files retain historical GPL/GPL2+ notices;
+license-header cleanup is tracked in TODO.
 
-Originally released as LGPL-2.1 or later, although some source code simply says
-GPL, and some others some says GPL2+. Despite this, the project as a whole
-should be regarded as LGPL-2.1+, as per COPYING file. To avoid further confusion
-in the future, I suggest source files be standartized with a common header and
-re-licensed, preferably as GPL-3 or later (not LGPL).
+The Debian packaging and additional material, including this README and
+Makefile, are Copyright (c) 2012 Rodrigo Silva (MestreLion). Rodrigo Silva
+claims no copyright over the C source code, including his patches.
 
-I claim no copyright over the C source code, including patches I made.
-
-The Debianization and aditional material, like this README and Makefile, is
-Copyright (c) 2012 Rodrigo Silva (MestreLion)
+Bundled libebur128 and R128Net-derived optimizations retain their MIT notices
+in vendor/libebur128/. The bundled queue header retains its BSD notice.
 
 
 Documentation (from wavegain --help)
 -------------------------------------------------------------------------------
 Generated from doc/help.json; run make docs after editing.
 
-WaveGain v1.4.5
+WaveGain v1.5.0
  Usage: wavegain [options] input.wav [...] (also .w64)
 
  OPTIONS
@@ -240,6 +314,34 @@ WaveGain v1.4.5
       --rf64       Write RF64 when WAV output exceeds 4 GiB. Without it,
                    such output keeps 0xFFFFFFFF sizes (an "oversized" WAV,
                    read to the end by most tools), as earlier versions did.
+ NEW OUTPUT AND MEASUREMENT OPTIONS
+      --output FILE       Write a single explicit input to a new file (-y or undo).
+      --output-dir DIR    Write to a new directory, preserving subdirectories
+                          with recursive input. Must be outside input directories.
+                          Existing outputs are never replaced; input is retained.
+                          Cannot combine output paths with --stdout or --fast.
+      --lufs              Select BS.1770 integrated loudness instead of ReplayGain.
+                          Default target: -23 LUFS; minimum duration: 400 ms.
+      --target-lufs X     Set target (-70..-5 LUFS); implies --lufs.
+                          Album gain uses a common gate across all valid tracks.
+                          Silence/below-gate material uses manual gain only.
+      --true-peak         Measure DC-corrected true peak and limit linear gain
+                          to -1 dBTP by default, even with --noclip.
+      --peak-ceiling X    Set true-peak ceiling (-60..0 dBTP); implies --true-peak.
+                          A 0.1 dB margin plus quantization room is reserved.
+                          Actual quantized output is checked against the ceiling.
+                          A ceiling too low for the output bit depth is rejected.
+                          stdout may contain partial output on a failed check.
+                          LUFS/true peak require full analysis. Stdin is calculation
+                          only and requires -p and finalized container sizes.
+                          Cannot combine with --fast or --undo-gain.
+                          Peak limits may prevent reaching the LUFS target.
+      --dither-profile X  legacy (default) or rate (requires -d 1..4, integer output).
+                          rate uses TPDF and first-order error feedback with a
+                          sample-rate-dependent coefficient; -d 1 is unshaped.
+                          Light/Medium/Heavy knees: 10/6/3 kHz, respectively.
+                          This is a separate family from the legacy F44 filters.
+
 [Builds with recursive/pattern support]
   -z, --recursive  Search for files recursively, each folder as an album
   -l, --log        Write log file.(Default filename = WGLog.txt)
@@ -284,7 +386,7 @@ WaveGain v1.4.5
                    DC_OFFSET_L, DC_OFFSET_R
  INPUT FILES
   WaveGain input files may be 8, 16, 24 or 32 bit integer, or floating point
-  WAV or Sony Wave64 files with 1 or 2 channels and a sample rate of 96000Hz, 88200Hz,
+  WAV or Sony Wave64 files with 1 or 2 channels and a sample rate of 192000Hz, 176400Hz, 96000Hz, 88200Hz,
   64000Hz, 48000Hz, 44100Hz, 32000Hz, 24000Hz, 22050Hz, 16000Hz, 12000Hz,
   11025Hz or 8000Hz.
   16 bit integer 'aiff' files are also supported.
@@ -302,6 +404,12 @@ WaveGain v1.4.5
   the scaled peak BEFORE limiting, dithering and output quantization.
   Manual gain is added once, then capped unless --noclip is used.
   --limiter does not remove this cap; combine with --noclip to bypass it.
+
+ HIGH SAMPLE RATES
+  At 176.4/192 kHz, legacy ReplayGain uses a 127-tap low-pass FIR and 2:1
+  downsampling for ANALYSIS ONLY (to 88.2/96 kHz). Output rate is unchanged.
+  LUFS and true peak are measured directly at the source sample rate.
+  Existing rates retain their original ReplayGain analysis path.
 
 Copyright (c) 2002-2010 John Edwards <john.edwards33@ntlworld.com>
 Additional code by Magnus Holmgren, Gian-Carlo Pascutto, and Tycho
