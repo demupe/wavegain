@@ -14,6 +14,7 @@ LIBS    += -Wl,-Bstatic -lssp -Wl,-Bdynamic
 endif
 SOURCES := $(wildcard *.c)
 HEADERS := $(wildcard *.h)
+VENDOR := $(wildcard vendor/libebur128/*)
 
 prefix   = /usr/local
 bindir   = $(prefix)/bin
@@ -67,7 +68,7 @@ check-sanitize:
 	$(MAKE) asan
 	UBSAN_OPTIONS=halt_on_error=1 $(MAKE) check CFLAGS="$(CFLAGS) $(SANITIZER_FLAGS)"
 
-$(TARGET): $(SOURCES) $(HEADERS) help_generated.h
+$(TARGET): $(SOURCES) $(HEADERS) $(VENDOR) help_generated.h
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEFS) $(LDFLAGS) -o $(TARGET) $(SOURCES) $(LIBS)
 
 install: $(TARGET)
@@ -76,16 +77,19 @@ install: $(TARGET)
 uninstall:
 	rm -f $(DESTDIR)$(bindir)/$(TARGET)
 
-check: $(TARGET) check-docs check-filters
+check: $(TARGET) check-docs check-filters check-loudness
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEFS) $(LDFLAGS) -UNDEBUG -o test/portability test/portability.c w64.c $(LIBS)
 	./test/portability
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEFS) $(LDFLAGS) -UNDEBUG -o test/wave64 test/wave64.c $(LIBS)
 	./test/wave64
-	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEFS) $(LDFLAGS) -UNDEBUG -o test/review_io test/review_io.c w64.c wavegain.c gain_analysis.c dither.c misc.c $(LIBS)
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEFS) $(LDFLAGS) -UNDEBUG -o test/review_io test/review_io.c w64.c wavegain.c gain_analysis.c dither.c misc.c loudness.c resample.c output.c $(LIBS)
 	./test/review_io
-	$(RM) test/portability test/wave64 test/review_io
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEFS) $(LDFLAGS) -UNDEBUG -o test/feature_dsp test/feature_dsp.c resample.c $(LIBS)
+	./test/feature_dsp
+	$(RM) test/portability test/wave64 test/review_io test/feature_dsp
 	python3 test/todo_regressions.py
 	python3 test/review_regressions.py
+	python3 test/feature_regressions.py
 
 docs:
 	python3 tools/generate_help.py
@@ -96,14 +100,18 @@ check-docs:
 check-filters:
 	python3 test/filter_regressions.py --cc "$(CC)" --cflags="$(CPPFLAGS) $(CFLAGS)"
 
+check-loudness:
+	python3 test/loudness_kernels.py --cc "$(CC)" --cflags="$(CPPFLAGS) $(CFLAGS)"
+
 check-interop: $(TARGET)
 	python3 test/wave64_interop.py
 	python3 test/filter_interop.py
 	python3 test/riff_interop.py
+	python3 test/feature_interop.py
 
 clean:
-	rm -f $(TARGET) test/portability test/wave64 test/review_io
+	rm -f $(TARGET) test/portability test/wave64 test/review_io test/feature_dsp
 
 distclean: clean
 
-.PHONY : all debug release verified-release asan install uninstall clean distclean check check-sanitize check-interop check-filters docs check-docs
+.PHONY : all debug release verified-release asan install uninstall clean distclean check check-sanitize check-interop check-filters check-loudness docs check-docs

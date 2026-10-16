@@ -22,6 +22,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <errno.h>
+#include <sys/stat.h>
+#include "output.h"
 #include "config.h"
 #include "gain_analysis.h"
 #include "i18n.h"
@@ -134,6 +137,8 @@ void free_list(FILE_LIST* list)
 	while (list != NULL) {
 		next = list->next_file;
 		free((void *) list->filename);
+		free(list->output);
+		wg_meter_free(list->meter);
 		free(list);
 		list = next;
 	}
@@ -157,6 +162,40 @@ const char* ftos(double f, const char* format)
  * \return  0 if successful and -1 if an error occured (in which case a
  *          message has been printed).
  */
+static int prepare_outputs(FILE_LIST *list, SETTINGS *settings)
+{
+	FILE_LIST *file, *other;
+	if (!settings->output_file && !settings->output_dir) return 1;
+	if (settings->output_file && list && list->next_file) {
+		fprintf(stderr, " --output requires exactly one input file.\n"); return 0;
+	}
+	for (file = list; file; file = file->next_file) {
+		struct stat st;
+		if (settings->output_file) file->output = strdup(settings->output_file);
+		else {
+			char *folder = settings->output_subdir && *settings->output_subdir ?
+				wg_output_join(settings->output_dir, settings->output_subdir) : strdup(settings->output_dir);
+			if (!folder || !wg_output_mkdirs(folder)) { free(folder); return 0; }
+			file->output = wg_output_join(folder, last_path(file->filename));
+			free(folder);
+		}
+		if (!file->output) return 0;
+		if (!stat(file->output, &st)) {
+			fprintf(stderr, " Refusing to overwrite output %s.\n", file->output); return 0;
+		}
+		if (errno != ENOENT) { file_error(" Cannot inspect output %s: ", file->output); return 0; }
+		for (other = list; other != file; other = other->next_file) {
+#ifdef _WIN32
+			if (!_stricmp(other->output, file->output))
+#else
+			if (!strcmp(other->output, file->output))
+#endif
+			{ fprintf(stderr, " Duplicate output %s.\n", file->output); return 0; }
+		}
+	}
+	return 1;
+}
+
 int process_files(FILE_LIST* file_list, SETTINGS* settings, const char* dir __attribute__((unused)))
 {
 	FILE_LIST* file;
@@ -170,6 +209,7 @@ int process_files(FILE_LIST* file_list, SETTINGS* settings, const char* dir __at
 	if (file_list == NULL)
 		return 0;
 
+	if (!prepare_outputs(file_list, settings)) return -1;
 	settings->first_file = 1;
 	total_samples = 0.;
 
@@ -181,6 +221,7 @@ int process_files(FILE_LIST* file_list, SETTINGS* settings, const char* dir __at
         for (file = file_list; file; file = file->next_file) {
 			if (file->filename == NULL)
 				continue;
+			settings->current_output = file->output;
 			if (!write_gains(file->filename, 0, 0, 0, 0, 0, settings)) {
 				fprintf(stderr, " Error processing GAIN for file - %s\n", file->filename);
 				failed = 1;
@@ -219,6 +260,10 @@ int process_files(FILE_LIST* file_list, SETTINGS* settings, const char* dir __at
             const double *dc;
             if (!file->filename) continue;
             dc = settings->adc ? album_dc_offset : file->dc_offset;
+            if ((settings->lufs || settings->true_peak) && !measure_file(file, dc, settings)) {
+                /* Do not publish an album whose measurements are incomplete. */
+                return -1;
+            }
             report_gain(file, dc, settings);
             settings->album_peak = fmax(settings->album_peak, corrected_peak(file, dc, settings));
         }
@@ -239,7 +284,24 @@ int process_files(FILE_LIST* file_list, SETTINGS* settings, const char* dir __at
 			write_log("\n");
 
         if (settings->audiophile) {
-            audiophile_gain = selected_gain(GetAlbumGain(), settings->album_peak, settings);
+            double raw_album = GetAlbumGain();
+            if (settings->lufs) {
+                size_t count = 0, i = 0;
+                double loudness;
+                WG_METER **meters;
+                for (file = file_list; file; file = file->next_file) if (file->filename) count++;
+                if (!count || count > (size_t)-1 / sizeof(*meters)) return -1;
+                meters = malloc(count * sizeof(*meters));
+                if (!meters) return -1;
+                for (file = file_list; file; file = file->next_file) if (file->filename) meters[i++] = file->meter;
+                if (!wg_meter_album(meters, count, &loudness)) { free(meters); return -1; }
+                free(meters);
+                raw_album = isfinite(loudness) ? settings->target_lufs - loudness : 0.;
+                fprintf(stderr, " Album integrated loudness: %.2f LUFS\n", loudness);
+            }
+            audiophile_gain = selected_gain(raw_album, settings->album_peak, settings);
+            if (settings->true_peak) for (file = file_list; file; file = file->next_file)
+                if (file->filename) audiophile_gain = fmin(audiophile_gain, true_peak_gain(file, settings));
             scale = pow(10., audiophile_gain * .05);
             if (settings->scale) fprintf(stdout, "%8.6lf", scale);
             fprintf(stderr, " Recommended Album Gain: %+6.2f dB\tScale: %6.4f\n\n", audiophile_gain, scale);
@@ -257,7 +319,7 @@ int process_files(FILE_LIST* file_list, SETTINGS* settings, const char* dir __at
                 gain = settings->audiophile ? audiophile_gain : file->track_gain;
                 correction = !settings->no_offset &&
                     (fabs(dc[0]) > 1. / 32768. || fabs(dc[1]) > 1. / 32768.);
-                file->apply = settings->need_to_process || settings->force || settings->limiter ||
+                file->apply = file->output || settings->true_peak || settings->lufs || settings->need_to_process || settings->force || settings->limiter ||
                               fabs(gain) >= .1 || correction;
                 if (file->apply) settings->progress_total += file->duration;
             }
@@ -267,6 +329,7 @@ int process_files(FILE_LIST* file_list, SETTINGS* settings, const char* dir __at
                     fprintf(stderr, " No Gain adjustment or DC correction required for file: %s, skipping.\n", file->filename);
                     continue;
                 }
+                settings->current_output = file->output;
                 if (!write_gains(file->filename, file->track_gain, audiophile_gain, file->track_peak,
                                  file->dc_offset, album_dc_offset, settings)) {
                     fprintf(stderr, " Error processing GAIN for file - %s\n", file->filename);
@@ -347,7 +410,25 @@ static void usage(void)
 }
 
 
+enum { OPT_OUTPUT = 256, OPT_OUTPUT_DIR, OPT_TRUE_PEAK, OPT_PEAK_CEILING,
+       OPT_LUFS, OPT_TARGET_LUFS, OPT_DITHER_PROFILE };
+
+static int parse_level(const char *text, double *value, double minimum, double maximum)
+{
+	char *end;
+	errno = 0;
+	*value = strtod(text, &end);
+	return !errno && end != text && !*end && isfinite(*value) && *value >= minimum && *value <= maximum;
+}
+
 static const struct option long_options[] = {
+	{"output", 1, NULL, OPT_OUTPUT},
+	{"output-dir", 1, NULL, OPT_OUTPUT_DIR},
+	{"true-peak", 0, NULL, OPT_TRUE_PEAK},
+	{"peak-ceiling", 1, NULL, OPT_PEAK_CEILING},
+	{"lufs", 0, NULL, OPT_LUFS},
+	{"target-lufs", 1, NULL, OPT_TARGET_LUFS},
+	{"dither-profile", 1, NULL, OPT_DITHER_PROFILE},
 	{"help",	0, NULL, 'h'},
 	{"album",	0, NULL, 'a'},
 	{"radio",	0, NULL, 'r'},
@@ -405,6 +486,8 @@ int main(int argc, char** argv)
 	settings.clip_prev = 1;
 	settings.outbitwidth = 16;
 	settings.format = WAV_NO_FMT;
+	settings.peak_ceiling = -1.;
+	settings.target_lufs = -23.;
 
 #ifdef _WIN32
 	/* Is this good enough? Or do we need to consider multi-byte codepages as 
@@ -419,6 +502,25 @@ int main(int argc, char** argv)
 
 	while ((ret = getopt_long(argc, argv, ARG_STRING, long_options, &option_index)) != -1) {
 		switch(ret) {
+			case OPT_OUTPUT: settings.output_file = optarg; break;
+			case OPT_OUTPUT_DIR: settings.output_dir = optarg; break;
+			case OPT_TRUE_PEAK: settings.true_peak = 1; break;
+			case OPT_LUFS: settings.lufs = 1; break;
+			case OPT_PEAK_CEILING:
+				if (!parse_level(optarg, &settings.peak_ceiling, -60., 0.)) {
+					fprintf(stderr, " --peak-ceiling requires a finite value from -60 to 0 dBTP.\n"); return EXIT_FAILURE;
+				}
+				settings.true_peak = 1; break;
+			case OPT_TARGET_LUFS:
+				if (!parse_level(optarg, &settings.target_lufs, -70., -5.)) {
+					fprintf(stderr, " --target-lufs requires a finite value from -70 to -5 LUFS.\n"); return EXIT_FAILURE;
+				}
+				settings.lufs = 1; break;
+			case OPT_DITHER_PROFILE:
+				if (!strcmp(optarg, "rate")) settings.dither_profile = 1;
+				else if (!strcmp(optarg, "legacy")) settings.dither_profile = 0;
+				else { fprintf(stderr, " Unknown dither profile: %s.\n", optarg); return EXIT_FAILURE; }
+				break;
 			case 0:
 				if (!strcmp(long_options[option_index].name, "force")) {
 					settings.force = 1;
@@ -611,6 +713,45 @@ int main(int argc, char** argv)
 #endif
 		}
 	}
+	if ((settings.fast || settings.undo) && (settings.lufs || settings.true_peak)) {
+		fprintf(stderr, " LUFS/true-peak measurement cannot be combined with fast/undo mode.\n"); return EXIT_FAILURE;
+	}
+	if (settings.dither_profile && (!settings.dithering || settings.format == WAV_FMT_FLOAT)) {
+		fprintf(stderr, " Rate dither requires -d 1..4 and integer output.\n"); return EXIT_FAILURE;
+	}
+	if (settings.output_file && settings.output_dir) {
+		fprintf(stderr, " Choose --output or --output-dir.\n"); return EXIT_FAILURE;
+	}
+	if (settings.output_file || settings.output_dir) {
+		char *absolute;
+		if (settings.std_out || settings.fast || (!settings.apply_gain && !settings.undo) ||
+		    optind >= argc || !strcmp(argv[optind], "-")) {
+			fprintf(stderr, " Output paths require file input and -y or --undo-gain, without --stdout/--fast.\n"); return EXIT_FAILURE;
+		}
+		if (settings.output_file) {
+			struct stat st;
+			if (argc - optind != 1 || strpbrk(argv[optind], "*?") ||
+			    stat(argv[optind], &st) || (st.st_mode & S_IFDIR)) {
+				fprintf(stderr, " --output requires exactly one explicit input file.\n"); return EXIT_FAILURE;
+			}
+		}
+		absolute = wg_output_absolute(settings.output_file ? settings.output_file : settings.output_dir, !settings.output_file);
+		if (!absolute) { fprintf(stderr, " Cannot prepare output path.\n"); return EXIT_FAILURE; }
+		if (settings.output_file) settings.output_file = absolute;
+		else {
+			settings.output_dir = absolute;
+			for (i = optind; i < argc; i++) {
+				struct stat st;
+				if (!stat(argv[i], &st) && (st.st_mode & S_IFDIR) && wg_output_inside(argv[i], absolute)) {
+					fprintf(stderr, " Output directory must be outside input directories.\n"); free(absolute); return EXIT_FAILURE;
+				}
+			}
+		}
+	}
+	if (optind < argc && !strcmp(argv[optind], "-") && (settings.lufs || settings.true_peak) && !settings.no_offset) {
+		fprintf(stderr, " LUFS/true-peak on stdin requires -p; DC-corrected analysis needs seekable input.\n"); return EXIT_FAILURE;
+	}
+
 	if (settings.fast) {
 		settings.apply_gain = 0;
 		settings.no_offset = 1;
@@ -639,8 +780,12 @@ int main(int argc, char** argv)
 		info.filename = "-";
 		status = get_gain("-", &info.track_peak, &info.track_gain,
 		                  info.dc_offset, info.offset, &settings, &info);
-		if (status != 1) return status == 2 ? EXIT_SUCCESS : EXIT_FAILURE;
+		if (status != 1) { wg_meter_free(info.meter); return status == 2 ? EXIT_SUCCESS : EXIT_FAILURE; }
+		if ((settings.lufs || settings.true_peak) && !measure_file(&info, info.dc_offset, &settings)) {
+			wg_meter_free(info.meter); return EXIT_FAILURE;
+		}
 		report_gain(&info, info.dc_offset, &settings);
+		wg_meter_free(info.meter);
 		return EXIT_SUCCESS;
 	}
 	else {
@@ -664,5 +809,7 @@ int main(int argc, char** argv)
 		settings.cmd = NULL;
 	}
 
+	free(settings.output_file);
+	free(settings.output_dir);
 	return (ret < 0) ? EXIT_FAILURE : EXIT_SUCCESS;
 }

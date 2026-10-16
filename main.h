@@ -1,6 +1,8 @@
 #ifndef MAIN_H
 #define MAIN_H
 
+#include "loudness.h"
+
 /* Some version numbers */
 #define WAVEGAIN_VERSION "1.4.5"
 
@@ -25,7 +27,11 @@ typedef struct file_list
     double minimum[2], maximum[2];
     double raw_gain, duration;
     unsigned long long frames;
-    int channels, apply;
+    int channels, apply, samplesize, format;
+    long rate;
+    double loudness, true_peak;
+    WG_METER *meter;
+    char *output;
 } FILE_LIST;
 
 
@@ -64,6 +70,10 @@ typedef struct settings
     unsigned int format;          /**< format of desired output */
     int need_to_process;          /**< need to process even if peak unchanged */
     char* cmd;
+    char *output_file, *output_dir;
+    const char *output_subdir, *current_output;
+    int true_peak, lufs, dither_profile;
+    double peak_ceiling, target_lufs;
 } SETTINGS;
 
 

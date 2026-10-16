@@ -54,6 +54,8 @@
 #include "dither.h"
 #include "main.h"
 #include "wavegain.h"
+#include "resample.h"
+#include "output.h"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -157,23 +159,87 @@ double selected_gain(double raw_gain, double peak, const SETTINGS *settings)
     return scale > 0. ? 20. * log10(scale) : NO_GAIN;
 }
 
+double true_peak_gain(const FILE_LIST *file, const SETTINGS *settings)
+{
+	int format = settings->format ? (int)settings->format : file->format;
+	int bits = settings->format ? (format == WAV_FMT_AIFF ? 16 : format == WAV_FMT_FLOAT ? 32 : format * 8) : file->samplesize;
+	double margin = format == WAV_FMT_FLOAT ? 1e-7 : 4. / ldexp(1., bits - 1);
+	double ceiling = pow(10., (settings->peak_ceiling - .1) / 20.) - margin;
+	if (ceiling <= 0.) return NAN;
+	return file->true_peak > 0. ? 20. * log10(ceiling / file->true_peak) : HUGE_VAL;
+}
+
+int measure_file(FILE_LIST *file, const double *dc, const SETTINGS *settings)
+{
+	wavegain_opt opt = {0};
+	FILE *in = NULL;
+	double *pcm[2] = {NULL, NULL};
+	unsigned long long frames = 0;
+	int ch, j, ok = 0;
+	long count;
+	if (file->meter) {
+		opt.rate = file->rate;
+		frames = file->frames;
+		if (!wg_meter_finish(file->meter, &file->loudness, &file->true_peak)) goto done;
+		goto measured;
+	}
+	in = fopen(file->filename, "rb");
+	if (!in || !open_audio_file(in, &opt) || opt.channels != file->channels || opt.rate != file->rate) goto done;
+	file->meter = wg_meter_create((unsigned long)opt.rate, opt.channels, settings->lufs, settings->true_peak);
+	if (!file->meter) goto done;
+	for (ch = 0; ch < opt.channels; ch++) if (!(pcm[ch] = malloc(BUFFER_LEN * sizeof(double)))) goto done;
+	while ((count = opt.read_samples(opt.readdata, pcm, BUFFER_LEN, 0, 0)) > 0) {
+		frames += count;
+		for (ch = 0; ch < opt.channels; ch++) for (j = 0; j < count; j++)
+			if (!settings->no_offset) pcm[ch][j] -= dc[ch];
+		if (!wg_meter_add(file->meter, pcm, (size_t)count)) goto done;
+	}
+	if (count < 0 || frames != file->frames ||
+	    !wg_meter_finish(file->meter, &file->loudness, &file->true_peak)) goto done;
+measured:
+	if (settings->lufs) {
+		if (frames < (unsigned long long)((opt.rate + 5) / 10) * 4) {
+			fprintf(stderr, " LUFS measurement requires at least 400 ms: %s.\n", file->filename); goto done;
+		}
+		file->raw_gain = isfinite(file->loudness) ? settings->target_lufs - file->loudness : 0.;
+		fprintf(stderr, " Integrated loudness: %.2f LUFS | %s\n", file->loudness, file->filename);
+	}
+	if (settings->true_peak) {
+		if (isnan(true_peak_gain(file, settings))) {
+			fprintf(stderr, " Peak ceiling leaves insufficient room for output quantization.\n"); goto done;
+		}
+		fprintf(stderr, " Input true peak after DC correction: %.3f dBTP | %s\n",
+		        file->true_peak > 0. ? 20. * log10(file->true_peak) : -HUGE_VAL, file->filename);
+	}
+	ok = 1;
+done:
+	free(pcm[0]); free(pcm[1]);
+	if (opt.readdata) wav_close(opt.readdata);
+	if (in) fclose(in);
+	if (!ok) fprintf(stderr, " Error measuring loudness/true peak: %s.\n", file->filename);
+	return ok;
+}
+
 void report_gain(FILE_LIST *file, const double *dc, SETTINGS *settings)
 {
     double peak = corrected_peak(file, dc, settings);
     double scale;
-    int left = 0, right = 0;
+    double left = 0., right = 0.;
     file->track_gain = selected_gain(file->raw_gain, peak, settings);
+    if (settings->true_peak) file->track_gain = fmin(file->track_gain, true_peak_gain(file, settings));
     scale = pow(10., file->track_gain * .05);
     file->track_peak = peak * scale; /* Predicted peak BEFORE the limiter. */
     if (!settings->no_offset && !settings->fast) {
-        left = (int)(dc[0] * -32768.);
-        right = file->channels == 2 ? (int)(dc[1] * -32768.) : 0;
+        left = trunc(dc[0] * -32768.);
+        right = file->channels == 2 ? trunc(dc[1] * -32768.) : 0.;
     }
-    fprintf(stderr, " %+6.2lf dB | %6.0lf | %5.2lf | %8.0lf | %4d  |  %4d  | %s\n",
+    fprintf(stderr, " %+6.2lf dB | %6.0lf | %5.2lf | %8.0lf | %4.0f  |  %4.0f  | %s\n",
             file->track_gain, peak, scale, file->track_peak, left, right, file->filename);
     if (write_to_log)
-        write_log(" %+6.2lf dB | %6.0lf | %5.2lf | %8.0lf | %4d  |  %4d  | %s\n",
+        write_log(" %+6.2lf dB | %6.0lf | %5.2lf | %8.0lf | %4.0f  |  %4.0f  | %s\n",
                   file->track_gain, peak, scale, file->track_peak, left, right, file->filename);
+    if ((settings->lufs || settings->true_peak) && file->track_gain + .005 < file->raw_gain + settings->man_gain)
+        fprintf(stderr, " Peak prevention reduced the requested gain by %.2f dB.\n", file->raw_gain + settings->man_gain - file->track_gain);
     if (settings->scale && !settings->audiophile) fprintf(stdout, "%8.6lf", scale);
 }
 
@@ -188,6 +254,8 @@ int get_gain(const char *filename, double *track_peak, double *track_gain,
     int ch, j, iteration = 0, sampled, ok = 0;
     Int64_t step;
     long count;
+    int high_rate = 0;
+    WG_DECIMATOR decimator;
     opt.force = settings->force;
     opt.std_in = !strcmp(filename, "-");
     in = opt.std_in ? stdin : fopen(filename, "rb");
@@ -202,8 +270,10 @@ int get_gain(const char *filename, double *track_peak, double *track_gain,
     if (opt.gain_chunk && !settings->force) {
         fprintf(stderr, " Skipping File %s, it has already been processed.\n", filename); ok = 2; goto done;
     }
-    if ((settings->first_file || !settings->audiophile ? InitGainAnalysis(opt.rate) :
-         ResetSampleFrequency(opt.rate)) != INIT_GAIN_ANALYSIS_OK) {
+    high_rate = opt.rate == 176400 || opt.rate == 192000;
+    if (high_rate) wg_decimator_init(&decimator, opt.channels);
+    if (!settings->lufs && (settings->first_file || !settings->audiophile ? InitGainAnalysis(high_rate ? opt.rate / 2 : opt.rate) :
+         ResetSampleFrequency(high_rate ? opt.rate / 2 : opt.rate)) != INIT_GAIN_ANALYSIS_OK) {
         fprintf(stderr, " Error Initializing Gain Analysis (non-standard samplerate?)\n"); goto done;
     }
     if (settings->first_file) {
@@ -220,17 +290,29 @@ int get_gain(const char *filename, double *track_peak, double *track_gain,
               opt.total_samples_per_channel * (opt.samplesize / 8) * opt.channels > 8192000;
     step = (Int64_t)(opt.total_samples_per_channel * (opt.samplesize / 8) * opt.channels / 1200);
     info->channels = opt.channels;
+    info->rate = opt.rate;
+    info->samplesize = opt.samplesize;
+    info->format = opt.format;
+    if (settings->lufs && !(opt.rate == 8000 || opt.rate == 11025 || opt.rate == 12000 ||
+        opt.rate == 16000 || opt.rate == 22050 || opt.rate == 24000 || opt.rate == 32000 ||
+        opt.rate == 44100 || opt.rate == 48000 || opt.rate == 64000 || opt.rate == 88200 ||
+        opt.rate == 96000 || high_rate)) goto done;
     for (ch = 0; ch < opt.channels; ch++) {
         buffer[ch] = malloc(BUFFER_LEN * sizeof(double));
         if (!buffer[ch]) goto done;
         info->minimum[ch] = HUGE_VAL; info->maximum[ch] = -HUGE_VAL;
         offset[ch] = dc_offset[ch] = 0.;
     }
+    if (settings->no_offset && (settings->lufs || settings->true_peak)) {
+        info->meter = wg_meter_create((unsigned long)opt.rate, opt.channels, settings->lufs, settings->true_peak);
+        if (!info->meter) goto done;
+    }
     while (!sampled || iteration < 200) {
         Int64_t position = sampled ? step * (100 + iteration * 5) : 0;
         count = opt.read_samples(opt.readdata, buffer, BUFFER_LEN, sampled, position);
         if (count < 0) { fprintf(stderr, " Error reading %s.\n", filename); goto done; }
         if (!count) break;
+        if (info->meter && !wg_meter_add(info->meter, buffer, (size_t)count)) goto done;
         frames += count;
         for (ch = 0; ch < opt.channels; ch++) {
             for (j = 0; j < count; j++) {
@@ -239,14 +321,27 @@ int get_gain(const char *filename, double *track_peak, double *track_gain,
                 info->minimum[ch] = fmin(info->minimum[ch], value);
                 info->maximum[ch] = fmax(info->maximum[ch], value);
                 if (!settings->fast) offset[ch] += value;
-                buffer[ch][j] = value * 32767.;
+                if (!high_rate) buffer[ch][j] = value * 32767.;
             }
         }
-        if (AnalyzeSamples(buffer[0], buffer[1], count, opt.channels) != GAIN_ANALYSIS_OK) goto done;
+        if (!settings->lufs) {
+            int analysis_count = (int)count;
+            if (high_rate) {
+                analysis_count = wg_decimator_process(&decimator, buffer, (int)count);
+                for (ch = 0; ch < opt.channels; ch++) for (j = 0; j < analysis_count; j++) buffer[ch][j] *= 32767.;
+            }
+            if (AnalyzeSamples(buffer[0], buffer[1], (size_t)analysis_count, opt.channels) != GAIN_ANALYSIS_OK) goto done;
+        }
         iteration++;
     }
     if (!frames) { fprintf(stderr, " No audio samples in %s.\n", filename); goto done; }
-    info->raw_gain = GetTitleGain();
+    if (high_rate && !settings->lufs) {
+        double tail[2][63] = {{0}}, *p[2] = {tail[0], tail[1]};
+        int n = wg_decimator_process(&decimator, p, 63);
+        for (ch = 0; ch < opt.channels; ch++) for (j = 0; j < n; j++) p[ch][j] *= 32767.;
+        if (AnalyzeSamples(p[0], p[1], (size_t)n, opt.channels) != GAIN_ANALYSIS_OK) goto done;
+    }
+    info->raw_gain = settings->lufs ? 0. : GetTitleGain();
     if (info->raw_gain == GAIN_NOT_ENOUGH_SAMPLES) {
         fprintf(stderr, " Insufficient audio for ReplayGain in %s.\n", filename); goto done;
     }
@@ -294,6 +389,8 @@ int write_gains(const char *filename, double radio_gain, double audiophile_gain,
 	audio_file   *aufile = NULL;
 	double       *pcm[2] = {NULL, NULL};
 	int          temp_created = 0, keep_temp = 0;
+	WG_METER     *output_meter = NULL;
+	const char   *destination = settings->current_output ? settings->current_output : filename;
 	int          readcount,
 	             result = 0,
 	             output_failed = 0,
@@ -308,7 +405,7 @@ int write_gains(const char *filename, double radio_gain, double audiophile_gain,
 	input_format *format;
 
 	char         template[] = ".tmp_XXXXXX";
-	size_t       tempSize = strlen(filename) + sizeof(template);
+	size_t       tempSize = strlen(destination) + sizeof(template);
 	char*        tempName = NULL;
 #ifndef _WIN32
 	struct stat  fst;	/* owner and permissions are copied on POSIX only */
@@ -439,10 +536,20 @@ int write_gains(const char *filename, double radio_gain, double audiophile_gain,
 			fprintf(stderr, " Error allocating memory for output file name\n");
 			goto exit;
 		}
-		_snprintf(tempName, tempSize, "%s%s", filename, template);
+		_snprintf(tempName, tempSize, "%s%s", destination, template);
 
 
 		Init_Dither (wg_opts->samplesize, settings->shapingtype);
+		if (settings->dither_profile) {
+			if (wg_opts->format == WAV_FMT_FLOAT) {
+				fprintf(stderr, " Rate dither requires integer output.\n"); goto exit;
+			}
+			Init_Rate_Dither(wg_opts->rate, settings->shapingtype);
+		}
+		if (settings->true_peak) {
+			output_meter = wg_meter_create((unsigned long)wg_opts->rate, wg_opts->channels, 0, 1);
+			if (!output_meter) goto exit;
+		}
 
 		if (wg_opts->undo) {
 			scale = 1.0 / wg_opts->gain_scale;
@@ -555,8 +662,9 @@ int write_gains(const char *filename, double radio_gain, double audiophile_gain,
 							Sum = pcm[k][j]*2147483647.f;
 							if (i > 31)
 								i = 0;
-							val = dither_output(settings->dithering, settings->shapingtype, i,
-									    Sum, k, wg_opts->format);
+							val = settings->dither_profile ? Rate_Dither(Sum, k, wg_opts->samplesize) :
+								dither_output(settings->dithering, settings->shapingtype, i,
+								              Sum, k, wg_opts->format);
 							if (val > (Int64_t)wrap_prev_pos)
 								val = (Int64_t)wrap_prev_pos;
 							else if (val < (Int64_t)wrap_prev_neg)
@@ -573,6 +681,11 @@ int write_gains(const char *filename, double radio_gain, double audiophile_gain,
 				}
 				sample_buffer = output_to_PCM(pcm, sample_buffer, wg_opts->channels,
 						bout, wg_opts->format);
+				if (output_meter) {
+					for (k = 0; k < wg_opts->channels; k++) for (j = 0; j < bout; j++)
+						pcm[k][j] = wg_opts->format == WAV_FMT_FLOAT ? (float)pcm[k][j] : pcm[k][j] / ldexp(1., wg_opts->samplesize - 1);
+					if (!wg_meter_add(output_meter, pcm, (size_t)bout)) { output_failed = 1; break; }
+				}
 				/* write to file */
                 if (!write_audio_file(aufile, sample_buffer, bout * wg_opts->channels)) {
                     output_failed = 1;
@@ -581,6 +694,12 @@ int write_gains(const char *filename, double radio_gain, double audiophile_gain,
 			}
 		}
 conversion_done:
+		if (output_meter && !output_failed) {
+			double peak;
+			if (!wg_meter_finish(output_meter, NULL, &peak) || peak > pow(10., settings->peak_ceiling / 20.) * (1. + 1e-6)) {
+				fprintf(stderr, " Output true peak exceeds the requested ceiling.\n"); output_failed = 1;
+			} else fprintf(stderr, " Output true peak: %.3f dBTP\n", peak > 0. ? 20. * log10(peak) : -HUGE_VAL);
+		}
 		free(sample_buffer);
 		sample_buffer = NULL;
 		wav_close(wg_opts->readdata);
@@ -600,6 +719,14 @@ conversion_done:
                 settings->progress_total > 0. ? fmin(100., 100. * settings->progress_done / settings->progress_total) : 100.);
 
         if (!settings->std_out) {
+			if (settings->current_output) {
+				if (!wg_output_publish(tempName, destination)) {
+					keep_temp = 1;
+					fprintf(stderr, " Cannot publish output %s; completed file kept at %s.\n", destination, tempName);
+					goto exit;
+				}
+				temp_created = 0;
+			} else {
 #ifndef _WIN32
 			/* copy owner, group, permissions from original to output */
 			/* TODO: add -p|--preserve=[=ATTR_LIST] (see `man cp`) and only copy
@@ -624,10 +751,12 @@ conversion_done:
 				goto exit;
 			}
 			temp_created = 0;
+			}
 		}
 		result = 1;
 	}
 exit:
+	wg_meter_free(output_meter);
 	free(sample_buffer);
 	for (i = 0; i < 2; i++) free(pcm[i]);
 	if (wg_opts) {

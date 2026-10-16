@@ -1,0 +1,24 @@
+libebur128 v1.2.6
+Upstream: https://github.com/jiixyj/libebur128
+Commit: 67b33abe1558160ed76ada1322329b0e9e058b02
+
+Files: ebur128.c, ebur128.h, COPYING and ebur128/queue/sys/queue.h.
+Local adaptation: include the bundled "queue.h" instead of <sys/queue.h>.
+The MIT license is in COPYING; the BSD queue license is retained in queue.h.
+Compiled through ../../loudness.c; no system library or runtime dependency.
+
+Optimized double-input kernels in ../../loudness_fast.h use mechanisms from
+R128Net 1.1.2, commit 9cc4d4efa05296d3c03bec7ff1e1b218936664e9:
+https://github.com/routersys/R128Net
+See R128Net-LICENSE.txt for its MIT copyright and permission notice.
+The vendor source dispatches double input to these kernels; define
+WG_EBUR_REFERENCE to retain the original implementation for verification.
+FMA contraction is disabled in both paths for expression-order comparisons.
+
+Other local adaptations: replace an x86-specific manual-FTZ warning with a
+comment; mark the unused interpolator error accumulator as read; compile the
+original double filter only in reference builds (other formats are retained).
+Stereo gating-block energy additionally uses the paired SIMD helper while
+preserving each channel's original addition order, including ring wrap.
+Define WG_EBUR_EXTRA_REFERENCE to disable this extra energy optimization and
+the WaveGain adapter's peak-only filter bypass for incremental comparisons.

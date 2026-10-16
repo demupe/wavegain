@@ -28,6 +28,7 @@
 #include "i18n.h"
 #include "misc.h"
 #include "recurse.h"
+#include "output.h"
 
 
 
@@ -430,6 +431,8 @@ static int process_directory(const char* current, const char* path, SETTINGS* se
 {
 	char* full_path;
 	char* old_path;
+	const char *saved_subdir = settings->output_subdir;
+	char *subdir = NULL;
 	int result = -1;
 
 	old_path = getcwd(NULL, 1024);
@@ -454,6 +457,13 @@ static int process_directory(const char* current, const char* path, SETTINGS* se
 
 	strcat(full_path, path);
 
+	if (settings->output_dir && wg_output_inside(path, settings->output_dir)) {
+		fprintf(stderr, " Output directory must be outside input directories.\n");
+		free(old_path); free(full_path); return -1;
+	}
+	subdir = *current ? wg_output_join(saved_subdir ? saved_subdir : "", path) : strdup("");
+	if (!subdir) { free(old_path); free(full_path); return -1; }
+	settings->output_subdir = subdir;
 	if (chdir(path) == 0) {
 		DIRECTORY* directory;
 		FILE_LIST* file_list = NULL;
@@ -514,6 +524,8 @@ static int process_directory(const char* current, const char* path, SETTINGS* se
 	else
 		file_error(_("Couldn't go to folder '%s': "), full_path);
 
+	settings->output_subdir = saved_subdir;
+	free(subdir);
 	free(old_path);
 	free(full_path);
 	return result;

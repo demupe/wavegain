@@ -1,5 +1,5 @@
 .\" Generated from doc/help.json; do not edit.
-.TH WAVEGAIN 1 "October 14, 2026" "WaveGain 1.4.5"
+.TH WAVEGAIN 1 "October 16, 2026" "WaveGain 1.4.5"
 .SH NAME
 wavegain \- apply ReplayGain to PCM WAV and Sony Wave64 audio
 .SH DESCRIPTION
@@ -38,6 +38,34 @@ WaveGain v1.4.5
       \-\-rf64       Write RF64 when WAV output exceeds 4 GiB. Without it,
                    such output keeps 0xFFFFFFFF sizes (an "oversized" WAV,
                    read to the end by most tools), as earlier versions did.
+ NEW OUTPUT AND MEASUREMENT OPTIONS
+      \-\-output FILE       Write a single explicit input to a new file (\-y or undo).
+      \-\-output\-dir DIR    Write to a new directory, preserving subdirectories
+                          with recursive input. Must be outside input directories.
+                          Existing outputs are never replaced; input is retained.
+                          Cannot combine output paths with \-\-stdout or \-\-fast.
+      \-\-lufs              Select BS.1770 integrated loudness instead of ReplayGain.
+                          Default target: \-23 LUFS; minimum duration: 400 ms.
+      \-\-target\-lufs X     Set target (\-70..\-5 LUFS); implies \-\-lufs.
+                          Album gain uses a common gate across all valid tracks.
+                          Silence/below\-gate material uses manual gain only.
+      \-\-true\-peak         Measure DC\-corrected true peak and limit linear gain
+                          to \-1 dBTP by default, even with \-\-noclip.
+      \-\-peak\-ceiling X    Set true\-peak ceiling (\-60..0 dBTP); implies \-\-true\-peak.
+                          A 0.1 dB margin plus quantization room is reserved.
+                          Actual quantized output is checked against the ceiling.
+                          A ceiling too low for the output bit depth is rejected.
+                          stdout may contain partial output on a failed check.
+                          LUFS/true peak require full analysis. Stdin is calculation
+                          only and requires \-p and finalized container sizes.
+                          Cannot combine with \-\-fast or \-\-undo\-gain.
+                          Peak limits may prevent reaching the LUFS target.
+      \-\-dither\-profile X  legacy (default) or rate (requires \-d 1..4, integer output).
+                          rate uses TPDF and first\-order error feedback with a
+                          sample\-rate\-dependent coefficient; \-d 1 is unshaped.
+                          Light/Medium/Heavy knees: 10/6/3 kHz, respectively.
+                          This is a separate family from the legacy F44 filters.
+
 [Builds with recursive/pattern support]
   \-z, \-\-recursive  Search for files recursively, each folder as an album
   \-l, \-\-log        Write log file.(Default filename = WGLog.txt)
@@ -82,7 +110,7 @@ WaveGain v1.4.5
                    DC_OFFSET_L, DC_OFFSET_R
  INPUT FILES
   WaveGain input files may be 8, 16, 24 or 32 bit integer, or floating point
-  WAV or Sony Wave64 files with 1 or 2 channels and a sample rate of 96000Hz, 88200Hz,
+  WAV or Sony Wave64 files with 1 or 2 channels and a sample rate of 192000Hz, 176400Hz, 96000Hz, 88200Hz,
   64000Hz, 48000Hz, 44100Hz, 32000Hz, 24000Hz, 22050Hz, 16000Hz, 12000Hz,
   11025Hz or 8000Hz.
   16 bit integer 'aiff' files are also supported.
@@ -100,6 +128,12 @@ WaveGain v1.4.5
   the scaled peak BEFORE limiting, dithering and output quantization.
   Manual gain is added once, then capped unless \-\-noclip is used.
   \-\-limiter does not remove this cap; combine with \-\-noclip to bypass it.
+
+ HIGH SAMPLE RATES
+  At 176.4/192 kHz, legacy ReplayGain uses a 127\-tap low\-pass FIR and 2:1
+  downsampling for ANALYSIS ONLY (to 88.2/96 kHz). Output rate is unchanged.
+  LUFS and true peak are measured directly at the source sample rate.
+  Existing rates retain their original ReplayGain analysis path.
 
 Copyright (c) 2002\-2010 John Edwards <john.edwards33@ntlworld.com>
 Additional code by Magnus Holmgren, Gian\-Carlo Pascutto, and Tycho
