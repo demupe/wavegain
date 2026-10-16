@@ -1,6 +1,8 @@
 WaveGain v1.5.0
 ===============================================================================
 
+Japanese documentation / 日本語版: [README.ja.md](README.ja.md)
+
 WaveGain measures and adjusts the loudness of mono and stereo audio files.
 It supports ReplayGain and BS.1770 integrated loudness (LUFS), with optional
 true-peak protection. Gain is applied directly to the audio samples.
