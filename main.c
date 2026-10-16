@@ -160,6 +160,7 @@ const char* ftos(double f, const char* format)
 int process_files(FILE_LIST* file_list, SETTINGS* settings, const char* dir __attribute__((unused)))
 {
 	FILE_LIST* file;
+	int failed = 0;
 	double     audiophile_gain = 0.,
 	           scale = 1.,
 	           album_dc_offset[2] = {0., 0.};
@@ -182,6 +183,7 @@ int process_files(FILE_LIST* file_list, SETTINGS* settings, const char* dir __at
 				continue;
 			if (!write_gains(file->filename, 0, 0, 0, 0, 0, settings)) {
 				fprintf(stderr, " Error processing GAIN for file - %s\n", file->filename);
+				failed = 1;
 				continue;
 			}
 		}
@@ -192,18 +194,22 @@ int process_files(FILE_LIST* file_list, SETTINGS* settings, const char* dir __at
 			if (file->filename == NULL)
 				continue;
 
-			if (!get_gain(file->filename, &file->track_peak, &file->track_gain,
-			              file->dc_offset, file->offset, settings, file)) {
-				free((void *)file->filename);
-				file->filename = NULL;
-				continue;
+			{
+				int status = get_gain(file->filename, &file->track_peak, &file->track_gain,
+				                      file->dc_offset, file->offset, settings, file);
+				if (status != 1) {
+					if (!status) failed = 1; /* A deliberate skip returns 2. */
+					free((void *)file->filename);
+					file->filename = NULL;
+					continue;
+				}
 			}
 
 			album_dc_offset[0] += file->offset[0];
 			album_dc_offset[1] += file->offset[1];
 		}
 
-        if (settings->first_file) return 0; /* All inputs were skipped or empty. */
+        if (settings->first_file) return failed ? -1 : 0;
         if (total_samples > 0.) {
             album_dc_offset[0] /= total_samples;
             album_dc_offset[1] /= total_samples;
@@ -262,15 +268,17 @@ int process_files(FILE_LIST* file_list, SETTINGS* settings, const char* dir __at
                     continue;
                 }
                 if (!write_gains(file->filename, file->track_gain, audiophile_gain, file->track_peak,
-                                 file->dc_offset, album_dc_offset, settings))
+                                 file->dc_offset, album_dc_offset, settings)) {
                     fprintf(stderr, " Error processing GAIN for file - %s\n", file->filename);
+                    failed = 1;
+                }
             }
         }
 	}
 
-	fprintf(stderr, "\n WaveGain Processing completed normally\n");
-	if(write_to_log)
-		write_log("\n WaveGain Processing completed normally\n\n");
+	fprintf(stderr, "\n WaveGain Processing completed %s\n", failed ? "with errors" : "normally");
+	if (write_to_log)
+		write_log("\n WaveGain Processing completed %s\n\n", failed ? "with errors" : "normally");
 
 #ifdef _WIN32
 	if (settings->cmd) { 	/* execute user command */
@@ -325,7 +333,7 @@ int process_files(FILE_LIST* file_list, SETTINGS* settings, const char* dir __at
 	}
 #endif
 
-	return 0;
+	return failed ? -1 : 0;
 }
 
 
@@ -469,6 +477,10 @@ int main(int argc, char** argv)
 			case 'l':
 				write_to_log = 1;
 #ifdef _WIN32
+				if (strlen(CmdDir) + strlen(LOG_NAME) >= sizeof(log_file_name)) {
+					fprintf(stderr, "Log filename is too long.\n");
+					return EXIT_FAILURE;
+				}
 				strcpy(log_file_name, CmdDir);
 				strcat(log_file_name, LOG_NAME);
 #else
@@ -477,6 +489,10 @@ int main(int argc, char** argv)
 				break;
 			case 'f':
 				write_to_log = 1;
+				if (strlen(optarg) >= sizeof(log_file_name)) {
+					fprintf(stderr, "Log filename is too long.\n");
+					return EXIT_FAILURE;
+				}
 				strcpy(log_file_name, optarg);
 				break;
 			case 'n':
@@ -503,9 +519,12 @@ int main(int argc, char** argv)
 			case 't':
 				settings.limiter = 1;
 				break;
+			case '?':
+				return EXIT_FAILURE;
 			case 'g':
-   				if(sscanf(optarg, "%lf", &settings.man_gain) != 1) {
+				if(sscanf(optarg, "%lf", &settings.man_gain) != 1 || !isfinite(settings.man_gain)) {
 	    				fprintf(stderr, "Warning: manual gain %s not recognised, ignoring\n", optarg);
+					settings.man_gain = 0.;
 					break;
 				}
 				if(settings.man_gain < -20.0) {
@@ -616,10 +635,11 @@ int main(int argc, char** argv)
 
 	if (!strcmp(argv[optind], "-")) {
 		FILE_LIST info = {0};
+		int status;
 		info.filename = "-";
-		if (!get_gain("-", &info.track_peak, &info.track_gain,
-		              info.dc_offset, info.offset, &settings, &info))
-			return EXIT_FAILURE;
+		status = get_gain("-", &info.track_peak, &info.track_gain,
+		                  info.dc_offset, info.offset, &settings, &info);
+		if (status != 1) return status == 2 ? EXIT_SUCCESS : EXIT_FAILURE;
 		report_gain(&info, info.dc_offset, &settings);
 		return EXIT_SUCCESS;
 	}

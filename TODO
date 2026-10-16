@@ -1,3 +1,34 @@
+Safety review follow-up: 2026-10-16 (base commit ef3efeb).
+Report: doc/code-review-2026-10-16.md
+Reproduce: make check; make check-sanitize; make check-interop
+
+- [DONE] R1/R7: validate RIFF chunk boundaries before editing headers;
+    preserve marker-like metadata and rebuild odd-length data padding.
+- [DONE] R2/R3/R5: bounded AIFF/AIFC header parsing, mono/stereo 16-bit
+    validation, and fresh WAV headers for AIFF-to-WAV conversions.
+- [DONE] R4: stream formatted logs without a fixed-size message buffer;
+    reject log filenames that exceed the path buffer.
+- [DONE] R8/R9: validate WAV gain payloads and finite positive scales;
+    decode binary64 without exponent shifts; reconstruct signed PCM through
+    unsigned arithmetic; preserve quantizer bits using memcpy.
+- [DONE] R10/R11: propagate metadata/header/seek/finalization failures,
+    clean up allocation failures, preserve originals and report failed batches
+    with a nonzero status. Fault injection and CLI regressions cover these.
+- [IMPLEMENTED, VALIDATION OPEN] R6: exclusive Windows temporary creation
+    and replacement via MoveFileExA without pre-deleting the original.
+    Native Windows success, locked-file/permission failures and path tests
+    are still required.
+- [DONE] Serialize clean/build for debug/release/asan under parallel make;
+    include UBSan and add make check-sanitize. Restore working directories
+    on traversal errors and avoid recursive POSIX directory symlink cycles.
+- [OPEN] Sound-quality extensions from the review: sample-rate-specific
+    noise-shaping evaluation, optional true peak/headroom and post-limiter
+    output measurements. Ordinary audio output is retained; extreme overdrive
+    now saturates before integer quantization and noise-shaping history.
+- [OPEN] Encapsulate analysis/dither globals before library or parallel use.
+    The existing non-UTF-8 license comment is unchanged; Clang's debug build
+    still reports its encoding warning. License-header cleanup remains open.
+
 Implementation follow-up: 2026-10-14 (base commit 8b224d3).
 Details: doc/todo-fixes.txt
 Historical investigation: doc/todo-investigation.txt / .json

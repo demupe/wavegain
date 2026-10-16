@@ -116,7 +116,8 @@ with tempfile.TemporaryDirectory(prefix="wavegain-todo-regressions-") as temp:
     empty = folder / "empty.wav"
     write_fixture(empty, 44100, 0)
     before = empty.read_bytes()
-    result = run(BINARY, ["-y", empty])
+    result = subprocess.run([str(BINARY), "-y", str(empty)], capture_output=True, text=True)
+    assert result.returncode == 1
     assert empty.read_bytes() == before and not PROGRESS.findall(result.stderr)
     # The limiter has documented semantics: its cap stays enabled unless -n.
     source.write_bytes(original)
