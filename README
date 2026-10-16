@@ -1,4 +1,4 @@
-ReplayGain for wave files, v1.4.4
+ReplayGain for wave files, v1.4.5
 
 WaveGain is an application of the ReplayGain algorithms to standard PCM wave
 files. Calculated gain adjustments are applied directly to the audio data,
@@ -141,6 +141,18 @@ Behavior changes
 -------------------------------------------------------------------------------
 Results can differ from earlier releases for the same input:
 
+* WAV headers are updated at validated chunk boundaries. Opaque metadata
+  containing strings such as "fmt " is preserved, and odd-length RIFF chunks
+  and data padding are handled when reading and converting sample formats.
+* 16-bit AIFF/AIFC can be converted to WAV. Unsupported 8-bit AIFF/AIFC and
+  malformed headers or gain chunks are rejected before replacing the input.
+* Analysis or conversion failures now produce a nonzero exit status, including
+  empty audio and partial batch failures. Deliberately skipped processed files
+  still succeed. Output finalization checks metadata copies and header writes;
+  failed conversions preserve the input. Windows replacement no longer deletes
+  the input first, and temporary files are created exclusively.
+* Extreme float/undo amplification is saturated before integer quantization
+  instead of overflowing the quantizer or noise-shaping history.
 * Clipping prevention and the reported Peak use the peak AFTER the selected
   DC offset correction (track or album), instead of the uncorrected peak.
 * DC offset correction is applied when the offset of either channel exceeds
@@ -194,7 +206,7 @@ Documentation (from wavegain --help)
 -------------------------------------------------------------------------------
 Generated from doc/help.json; run make docs after editing.
 
-WaveGain v1.4.4
+WaveGain v1.4.5
  Usage: wavegain [options] input.wav [...] (also .w64)
 
  OPTIONS

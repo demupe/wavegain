@@ -6,6 +6,7 @@
 #define NO_PEAK -1.f
 #define NO_GAIN -10000.f
 
+/* get_gain returns 1 on success, 2 for a processed-file skip, 0 on error. */
 extern int get_gain(const char *filename, double *track_peak, double *track_gain, double *dc_offset, double *offset,
 	SETTINGS *settings, FILE_LIST *info);
 extern int write_gains(const char *filename, double radio_gain, double audiophile_gain, double TitlePeak,

@@ -28,6 +28,8 @@
 
 #include <stdint.h>
 #include <float.h>
+#include <limits.h>
+#include <errno.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -56,38 +58,30 @@
 #include "i18n.h"
 #include "misc.h"
 
-/* Wrappers for mkstemp / _mktemp_s to a common API
- * Always return an open file stream or NULL on error
- */
+/* Create exclusively even if another process claims the generated name. */
 #ifdef _WIN32
-/* In Windows, _mktemp_s() simply returns a filename from template,
- * so fopen is used. Note this is not race-safe!
- * _mktemp_s() requires <io.h>
- */
-FILE* fmkstemp(char *template) {
-	/* The size passed to _mktemp_s includes the terminating NUL; without it
-	 * the call fails with EINVAL and every in-place (-y) run failed. */
-	if (_mktemp_s(template, strlen(template) + 1) == 0)
-		return fopen(template, "wb");
-	else
-		return NULL;
+#include <sys/stat.h>
+FILE *fmkstemp(char *name)
+{
+	int fd;
+	FILE *stream;
+	if (_mktemp_s(name, strlen(name) + 1)) return NULL;
+	fd = _open(name, _O_CREAT | _O_EXCL | _O_WRONLY | _O_BINARY, _S_IREAD | _S_IWRITE);
+	if (fd < 0) return NULL;
+	stream = _fdopen(fd, "wb");
+	if (!stream) { _close(fd); remove(name); }
+	return stream;
 }
 #else
-/* In POSIX, mkstemp() already opens a file, but not as a stream,
- * so fdopen is used. This is race-safe.
- * mkstemp() requires <stdlib.h>
- * fdopen()  requires <stdio.h>
- */
 #include <unistd.h>
-FILE* fmkstemp(char *template) {
-	int fd = mkstemp(template);
-	if (fd != -1)
-		return fdopen(fd, "wb");
-	else {
-		remove(template);
-		close(fd);
-		return NULL;
-	}
+FILE *fmkstemp(char *name)
+{
+	int fd = mkstemp(name);
+	FILE *stream;
+	if (fd < 0) return NULL;
+	stream = fdopen(fd, "wb");
+	if (!stream) { close(fd); remove(name); }
+	return stream;
 }
 #endif
 
@@ -153,149 +147,48 @@ Int64_t current_pos_t;
 /* Use the portable C99 lrint() from <math.h>. The former x87 fistpl
  * wrote only 32 bits into a long, leaving its upper half undefined on LP64. */
 
-double read_d64_be(unsigned char *cptr)
+/* Decode IEEE binary64 arithmetically, including subnormals, without shifts
+ * by an untrusted exponent or assumptions about the native double layout. */
+static double read_d64(const unsigned char *p, int big)
 {
-	int	exponent, negative;
-	double	dvalue;
-
-	negative = (cptr [0] & 0x80) ? 1 : 0;
-	exponent = ((cptr [0] & 0x7F) << 4) | ((cptr [1] >> 4) & 0xF);
-
-	/* Might not have a 64 bit long, so load the mantissa into a double. */
-	dvalue = (((cptr [1] & 0xF) << 24) | (cptr [2] << 16) | (cptr [3] << 8) | cptr [4]);
-	dvalue += ((cptr [5] << 16) | (cptr [6] << 8) | cptr [7]) / ((double) 0x1000000);
-
-	if (exponent == 0 && dvalue == 0.0)
-		return 0.0;
-
-	dvalue += 0x10000000;
-
-	exponent = exponent - 0x3FF;
-
-	dvalue = dvalue / ((double) 0x10000000);
-
-	if (negative)
-		dvalue *= -1;
-
-	if (exponent > 0)
-		dvalue *= (1 << exponent);
-	else if (exponent < 0)
-		dvalue /= (1 << abs (exponent));
-
-	return dvalue;
+	uint64_t bits = 0, fraction;
+	unsigned int exponent;
+	double value;
+	int i;
+	for (i = 0; i < 8; i++) bits = (bits << 8) | p[big ? i : 7 - i];
+	fraction = bits & UINT64_C(0x000fffffffffffff);
+	exponent = (unsigned int)((bits >> 52) & 0x7ff);
+	if (exponent == 0x7ff) value = fraction ? NAN : HUGE_VAL;
+	else if (!exponent) value = ldexp((double)fraction, -1074);
+	else value = ldexp(1. + (double)fraction / 4503599627370496., (int)exponent - 1023);
+	return bits >> 63 ? -value : value;
 }
 
-double read_d64_le(unsigned char *cptr)
+double read_d64_be(unsigned char *p) { return read_d64(p, 1); }
+double read_d64_le(unsigned char *p) { return read_d64(p, 0); }
+
+static void write_d64(unsigned char *out, double value, int big)
 {
-	int	exponent, negative;
-	double	dvalue;
-
-	negative = (cptr [7] & 0x80) ? 1 : 0;
-	exponent = ((cptr [7] & 0x7F) << 4) | ((cptr [6] >> 4) & 0xF);
-
-	/* Might not have a 64 bit long, so load the mantissa into a double. */
-	dvalue = (((cptr [6] & 0xF) << 24) | (cptr [5] << 16) | (cptr [4] << 8) | cptr [3]);
-	dvalue += ((cptr [2] << 16) | (cptr [1] << 8) | cptr [0]) / ((double) 0x1000000);
-
-	if (exponent == 0 && dvalue == 0.0)
-		return 0.0;
-
-	dvalue += 0x10000000;
-
-	exponent = exponent - 0x3FF;
-
-	dvalue = dvalue / ((double) 0x10000000);
-
-	if (negative)
-		dvalue *= -1;
-
-	if (exponent > 0)
-		dvalue *= (1 << exponent);
-	else if (exponent < 0)
-		dvalue /= (1 << abs (exponent));
-
-	return dvalue;
-}
-
-void write_d64_be(unsigned char *out, double in)
-{
-	int	exponent, mantissa;
-
-	memset (out, 0, sizeof (double));
-
-	if (in == 0.0)
-		return;
-
-	if (in < 0.0) {
-		in *= -1.0;
-		out [0] |= 0x80;
+	uint64_t bits = signbit(value) ? UINT64_C(0x8000000000000000) : 0;
+	int exponent, i;
+	double fraction;
+	value = fabs(value);
+	if (isnan(value)) bits |= UINT64_C(0x7ff8000000000000);
+	else if (isinf(value)) bits |= UINT64_C(0x7ff0000000000000);
+	else if (value) {
+		fraction = frexp(value, &exponent);
+		if (exponent < -1021)
+			bits |= (uint64_t)ldexp(value, 1074);
+		else {
+			bits |= (uint64_t)(exponent + 1022) << 52;
+			bits |= (uint64_t)((fraction * 2. - 1.) * 4503599627370496.);
+		}
 	}
-
-	in = frexp (in, &exponent);
-
-	exponent += 1022;
-
-	out [0] |= (exponent >> 4) & 0x7F;
-	out [1] |= (exponent << 4) & 0xF0;
-
-	in *= 0x20000000;
-	mantissa = lrint (floor (in));
-
-	out [1] |= (mantissa >> 24) & 0xF;
-	out [2] = (mantissa >> 16) & 0xFF;
-	out [3] = (mantissa >> 8) & 0xFF;
-	out [4] = mantissa & 0xFF;
-
-	in = fmod (in, 1.0);
-	in *= 0x1000000;
-	mantissa = lrint (floor (in));
-
-	out [5] = (mantissa >> 16) & 0xFF;
-	out [6] = (mantissa >> 8) & 0xFF;
-	out [7] = mantissa & 0xFF;
-
-	return;
+	for (i = 0; i < 8; i++, bits >>= 8) out[big ? 7 - i : i] = (unsigned char)bits;
 }
 
-void write_d64_le(unsigned char *out, double in)
-{
-	int	exponent, mantissa;
-
-	memset (out, 0, sizeof (double));
-
-	if (in == 0.0)
-		return;
-
-	if (in < 0.0) {
-		in *= -1.0;
-		out [7] |= 0x80;
-	}
-
-	in = frexp (in, &exponent);
-
-	exponent += 1022;
-
-	out [7] |= (exponent >> 4) & 0x7F;
-	out [6] |= (exponent << 4) & 0xF0;
-
-	in *= 0x20000000;
-	mantissa = lrint (floor (in));
-
-	out [6] |= (mantissa >> 24) & 0xF;
-	out [5] = (mantissa >> 16) & 0xFF;
-	out [4] = (mantissa >> 8) & 0xFF;
-	out [3] = mantissa & 0xFF;
-
-	in = fmod (in, 1.0);
-	in *= 0x1000000;
-	mantissa = lrint (floor (in));
-
-	out [2] = (mantissa >> 16) & 0xFF;
-	out [1] = (mantissa >> 8) & 0xFF;
-	out [0] = mantissa & 0xFF;
-
-	return;
-}
+void write_d64_be(unsigned char *p, double value) { write_d64(p, value, 1); }
+void write_d64_le(unsigned char *p, double value) { write_d64(p, value, 0); }
 
 input_format *open_audio_file(FILE *in, wavegain_opt *opt)
 {
@@ -307,7 +200,9 @@ input_format *open_audio_file(FILE *in, wavegain_opt *opt)
 	while (formats[j].id_func) {
 		size = formats[j].id_data_len;
 		if (size >= buf_size) {
-			buf = realloc(buf, size);
+			unsigned char *grown = realloc(buf, (size_t)size);
+			if (!grown) { free(buf); return NULL; }
+			buf = grown;
 			buf_size = size;
 		}
 
@@ -328,6 +223,8 @@ input_format *open_audio_file(FILE *in, wavegain_opt *opt)
 				free(buf);
 				return &formats[j];
 			}
+			/* A recognized but invalid container is not another format. */
+			break;
 		}
 		j++;
 	}
@@ -339,6 +236,7 @@ input_format *open_audio_file(FILE *in, wavegain_opt *opt)
 
 static int seek_forward(FILE *in, Int64_t length)
 {
+	if (length < 0) return 0;
 	if (FSEEK64(in, length, SEEK_CUR)) {
 		/* Failed. Do it the hard way. */
 		unsigned char buf[1024];
@@ -370,7 +268,7 @@ static int find_wav_chunk(FILE *in, char *type, Int64_t *len)
 
 		if (memcmp(buf, type, 4)) {
 			*len = READ_U32_LE(buf+4);
-			if (!seek_forward(in, *len))
+			if (!seek_forward(in, *len + (*len & 1)))
 				return 0;
 
 			buf[4] = 0;
@@ -383,79 +281,15 @@ static int find_wav_chunk(FILE *in, char *type, Int64_t *len)
 	return 0; /* unreachable */
 }
 
-static int find_gain_chunk(FILE *in, Int64_t *len)
-{
-	unsigned char buf[8];
-
-	if (fread(buf,1,8,in) < 8) {
-		/* Suck down a chunk specifier */
-			fprintf(stderr, "Warning: Unexpected EOF in reading WAV header (3)\n");
-		return 0; /* EOF before reaching the appropriate chunk */
-	}
-
-	if (!memcmp(buf, "gain", 4)) {
-		*len = READ_U32_LE(buf+4);
-		return 1;
-	}
-	else {
-		return 0;
-	}
-}
-
-static int find_aiff_chunk(FILE *in, char *type, unsigned int *len)
-{
-	unsigned char buf[8];
-
-	while (1) {
-		if (fread(buf,1,8,in) <8) {
-			fprintf(stderr, "Warning: Unexpected EOF in AIFF chunk\n");
-			return 0;
-		}
-
-		*len = READ_U32_BE(buf+4);
-
-		if (memcmp(buf,type,4)) {
-			if ((*len) & 0x1)
-				(*len)++;
-
-			if (!seek_forward(in, *len))
-				return 0;
-		}
-		else
-			return 1;
-	}
-	return 0; /* unreachable */
-}
-
-
-
 double read_IEEE80(unsigned char *buf)
 {
-	int s = buf[0] & 0xff;
-	int e = ((buf[0] & 0x7f) <<8) | (buf[1] & 0xff);
-	double f = ((unsigned long)(buf[2] & 0xff) << 24)|
-		((buf[3] & 0xff) << 16)|
-		((buf[4] & 0xff) << 8) |
-		 (buf[5] & 0xff);
-
-	if (e == 32767) {
-		if (buf[2] & 0x80)
-			return HUGE_VAL; /* Really NaN, but this won't happen in reality */
-		else {
-			if (s)
-				return -HUGE_VAL;
-			else
-				return HUGE_VAL;
-		}
-	}
-
-	f = ldexp(f, 32);
-	f += ((buf[6] & 0xff) << 24)|
-		((buf[7] & 0xff) << 16)|
-		((buf[8] & 0xff) << 8) |
-		 (buf[9] & 0xff);
-
-	return ldexp(f, e-16446);
+	uint32_t hi = READ_U32_BE(buf + 2), lo = READ_U32_BE(buf + 6);
+	int exponent = ((buf[0] & 0x7f) << 8) | buf[1];
+	double value;
+	if (exponent == 32767) return NAN;
+	value = ldexp((double)hi, 32) + lo;
+	value = ldexp(value, (exponent ? exponent : 1) - 16446);
+	return buf[0] & 0x80 ? -value : value;
 }
 
 /* AIFF/AIFC support adapted from the old OggSQUISH application */
@@ -478,115 +312,75 @@ int aiff_id(unsigned char *buf, int len)
 int aiff_open(FILE *in, wavegain_opt *opt, unsigned char *buf,
               int buflen __attribute__((unused)))
 {
-	int aifc; /* AIFC or AIFF? */
-	unsigned int len;
-	unsigned char *buffer;
-	unsigned char buf2[8];
-	aiff_fmt format;
-	aifffile *aiff = calloc(1, sizeof(aifffile));
-
-	if (buf[11] == 'C')
-		aifc = 1;
-	else {
-		aifc = 0;
-		opt->format = WAV_FMT_AIFF;
+	unsigned char head[8], comm[22];
+	Uint64_t remaining = READ_U32_BE(buf + 4), size, padded, frames = 0;
+	int have_comm = 0, channels = 0, big = BIG;
+	const int aifc = buf[11] == 'C';
+	double rate = 0.;
+	Int64_t start = FTELL64(in), actual;
+	if (remaining < 4) goto invalid;
+	/* Seekable AIFF must fit within the physical file as well as FORM. */
+	if (start >= 0) {
+		if (FSEEK64(in, 0, SEEK_END) || (actual = FTELL64(in)) < 0 ||
+		    FSEEK64(in, start, SEEK_SET) || remaining + 8 > (Uint64_t)actual)
+			goto invalid;
 	}
-
-	if (!find_aiff_chunk(in, "COMM", &len)) {
-		fprintf(stderr, "Warning: No common chunk found in AIFF file\n");
-		return 0; /* EOF before COMM chunk */
+	remaining -= 4;
+	while (remaining >= 8) {
+		if (fread(head, 1, 8, in) != 8) goto invalid;
+		remaining -= 8;
+		size = READ_U32_BE(head + 4);
+		padded = size + (size & 1);
+		if (padded > remaining) goto invalid;
+		if (!memcmp(head, "COMM", 4)) {
+			size_t needed = aifc ? 22 : 18;
+			if (have_comm || size < needed || fread(comm, 1, needed, in) != needed)
+				goto invalid;
+			channels = READ_U16_BE(comm);
+			frames = READ_U32_BE(comm + 2);
+			rate = read_IEEE80(comm + 8);
+			/* Only the documented 16-bit AIFF input is supported. */
+			if (channels < 1 || channels > 2 || READ_U16_BE(comm + 6) != 16 ||
+			    !isfinite(rate) || rate < 1. || rate > INT_MAX || floor(rate) != rate)
+				goto invalid;
+			if (aifc && memcmp(comm + 18, "NONE", 4)) {
+				if (memcmp(comm + 18, "sowt", 4)) goto invalid;
+				big = LITTLE;
+			}
+			if (!seek_forward(in, (Int64_t)(padded - needed))) goto invalid;
+			have_comm = 1;
+		} else if (!memcmp(head, "SSND", 4)) {
+			Uint64_t offset;
+			aifffile *aiff;
+			if (!have_comm || size < 8 || fread(head, 1, 8, in) != 8) goto invalid;
+			offset = READ_U32_BE(head);
+			if (READ_U32_BE(head + 4) || offset > size - 8 ||
+			    frames > (size - 8 - offset) / (channels * 2) ||
+			    !seek_forward(in, (Int64_t)offset)) goto invalid;
+			aiff = calloc(1, sizeof(*aiff));
+			if (!aiff) goto invalid;
+			aiff->f = in;
+			aiff->channels = (short)channels;
+			aiff->samplesize = 16;
+			aiff->bigendian = (short)big;
+			aiff->totalsamples = frames;
+			aiff->bounded = 1;
+			aiff->data_start = FTELL64(in);
+			opt->read_samples = wav_read;
+			opt->readdata = aiff;
+			opt->rate = (long)rate;
+			opt->channels = channels;
+			opt->samplesize = 16;
+			opt->endianness = big;
+			opt->format = aifc ? WAV_FMT_AIFC16 : WAV_FMT_AIFF;
+			opt->total_samples_per_channel = frames;
+			return 1;
+		} else if (!seek_forward(in, (Int64_t)padded)) goto invalid;
+		remaining -= padded;
 	}
-
-	if (len < 18) {
-		fprintf(stderr, "Warning: Truncated common chunk in AIFF header\n");
-		return 0; /* Weird common chunk */
-	}
-
-	buffer = alloca(len);
-
-	if (fread(buffer, 1, len, in) < len) {
-		fprintf(stderr, "Warning: Unexpected EOF in reading AIFF header\n");
-		return 0;
-	}
-
-	format.channels = READ_U16_BE(buffer);
-	format.totalframes = READ_U32_BE(buffer + 2);
-	format.samplesize = READ_U16_BE(buffer + 6);
-	format.rate = (int)read_IEEE80(buffer + 8);
-
-	aiff->bigendian = BIG;
-	opt->endianness = BIG;
-
-	if (aifc) {
-		if (len < 22) {
-			fprintf(stderr, "Warning: AIFF-C header truncated.\n");
-			return 0;
-		}
-
-		if (!memcmp(buffer + 18, "NONE", 4)) {
-			aiff->bigendian = BIG;
-			opt->endianness = BIG;
-		}
-		else if (!memcmp(buffer + 18, "sowt", 4)) {
-			aiff->bigendian = LITTLE;
-			opt->endianness = LITTLE;
-		}
-		else {
-			fprintf(stderr, "Warning: Can't handle compressed AIFF-C (%c%c%c%c)\n", *(buffer+18), *(buffer+19), *(buffer+20), *(buffer+21));
-			return 0; /* Compressed. Can't handle */
-		}
-	}
-
-	if (!find_aiff_chunk(in, "SSND", &len)) {
-		fprintf(stderr, "Warning: No SSND chunk found in AIFF file\n");
-		return 0; /* No SSND chunk -> no actual audio */
-	}
-
-	if (len < 8) {
-		fprintf(stderr, "Warning: Corrupted SSND chunk in AIFF header\n");
-		return 0; 
-	}
-
-	if (fread(buf2, 1, 8, in) < 8) {
-		fprintf(stderr, "Warning: Unexpected EOF reading AIFF header\n");
-		return 0;
-	}
-
-	format.offset = READ_U32_BE(buf2);
-	format.blocksize = READ_U32_BE(buf2+4);
-
-	if ( format.blocksize == 0 && (format.samplesize == 16 || format.samplesize == 8)) {
-		/* From here on, this is very similar to the wav code. Oh well. */
-		
-		opt->rate = format.rate;
-		opt->channels = format.channels;
-		opt->read_samples = wav_read; /* Similar enough, so we use the same */
-		opt->total_samples_per_channel = format.totalframes;
-		opt->samplesize = format.samplesize;
-		if (aifc && format.samplesize == 8)
-			opt->format = WAV_FMT_AIFC8;
-		else if (aifc && format.samplesize == 16)
-			opt->format = WAV_FMT_AIFC16;
-		opt->header_size = 0;
-		opt->header = NULL;
-		opt->rate = format.rate;
-		aiff->f = in;
-		aiff->samplesread = 0;
-		aiff->channels = format.channels;
-		aiff->samplesize = format.samplesize;
-		aiff->totalsamples = format.totalframes;
-		aiff->data_start = FTELL64(in) + format.offset;
-
-		opt->readdata = (void *)aiff;
-
-		seek_forward(in, format.offset); /* Swallow some data */
-		return 1;
-	}
-	else {
-		fprintf(stderr, "Warning: WaveGain does not support this type of AIFF/AIFC file\n"
-				" Must be 8 or 16 bit PCM.\n");
-		return 0;
-	}
+invalid:
+	fprintf(stderr, "Error: invalid or unsupported AIFF/AIFC (requires mono/stereo 16-bit PCM).\n");
+	return 0;
 }
 
 int wav_id(unsigned char *buf, int len)
@@ -623,9 +417,9 @@ int wav_open(FILE *in, wavegain_opt *opt,
 
 	if (rf64) {
 		/* RF64: the first chunk, ds64, holds the 64-bit RIFF/data sizes. */
-		unsigned char ds64[24];
-		if (!find_wav_chunk(in, "ds64", &len) || len < 24 ||
-		    fread(ds64, 1, 24, in) < 24 || !seek_forward(in, len - 24)) {
+		unsigned char ds64[28];
+		if (!find_wav_chunk(in, "ds64", &len) || len < 28 ||
+		    fread(ds64, 1, 28, in) < 28 || !seek_forward(in, len - 28 + (len & 1))) {
 			fprintf(stderr, "Warning: Invalid ds64 chunk in RF64 header\n");
 			return 0;
 		}
@@ -654,41 +448,23 @@ int wav_open(FILE *in, wavegain_opt *opt,
 		fprintf(stderr, "Warning: INVALID format chunk in WAV header.\n"
 				" Trying to read anyway (may not work)...\n");
 
-	/* Prevent buffer overflow in invalid / malicious files
-	 */
-	if (len > (Int64_t)sizeof(buf)) {
-		fprintf(stderr, "Warning: format chunk size (%lld) in WAV header"
-				" is larger than permitted (%zu).\n",
-				len, sizeof(buf));
-		len = sizeof(buf);
-	}
+	fmt_size = len > (Int64_t)sizeof(buf) ? sizeof(buf) : (size_t)len;
+	if (fread(buf, 1, fmt_size, in) != fmt_size ||
+	    !seek_forward(in, len - (Int64_t)fmt_size + (len & 1))) return 0;
 
-	/* Deal with stupid broken apps. Don't use these programs.
-	 */
-	
-	if (fread(buf,1,(size_t)len,in) < (size_t)len) {
-		fprintf(stderr, "Warning: Unexpected EOF in reading WAV header\n");
-		return 0;
-	}
-
-	fmt_size = (size_t)len;
-
-	if (!opt->std_in) {
-		current_pos = FTELL64(in);
-		if (!find_gain_chunk(in, &len))
-			FSEEK64(in, current_pos, SEEK_SET);
-		else {
-			unsigned char buf_double[8];
+	/* Walk actual chunk boundaries; a gain chunk need not follow fmt. */
+	for (;;) {
+		unsigned char head[8], encoded[8];
+		if (fread(head, 1, 8, in) != 8) return 0;
+		len = READ_U32_LE(head + 4);
+		if (!memcmp(head, "data", 4)) break;
+		if (!memcmp(head, "gain", 4)) {
+			if (len != 8 || opt->gain_chunk || fread(encoded, 1, 8, in) != 8) return 0;
+			opt->gain_scale = READ_D64(encoded);
+			if (!(opt->gain_scale > 0.) || !isfinite(opt->gain_scale) ||
+			    !isfinite(1. / opt->gain_scale)) return 0;
 			opt->gain_chunk = 1;
-			if (fread(buf_double, 1, 8, in) < 8)
-				fprintf(stderr, "Warning: Failed to read WAV gain chunk\n");
-			opt->gain_scale = READ_D64(buf_double);
-		}
-	}
-
-	if (!find_wav_chunk(in, "data", &len)) {
-		fprintf(stderr, "Warning: Failed to find data chunk in reading WAV header\n");
-		return 0; /* EOF */
+		} else if (!seek_forward(in, len + (len & 1))) return 0;
 	}
 	/* Validate the unsigned 64-bit size before it becomes a signed offset;
 	 * anything beyond INT64_MAX is treated as "past the end of the file". */
@@ -700,8 +476,8 @@ int wav_open(FILE *in, wavegain_opt *opt,
 	 * such data, or data claimed past the end of a truncated file, to EOF. */
 	if (!opt->std_in) {
 		Int64_t here = FTELL64(in), end = -1;
-		if (here >= 0 && !FSEEK64(in, 0, SEEK_END))
-			end = FTELL64(in);
+		if (here < 0 || FSEEK64(in, 0, SEEK_END) || (end = FTELL64(in)) < here)
+			return 0;
 		if (end >= here && here >= 0) {
 			if (len > end - here) {
 				if (len != 0xffffffff)
@@ -712,7 +488,7 @@ int wav_open(FILE *in, wavegain_opt *opt,
 			else if (!rf64 && len == 0xffffffff)
 				len = end - here;
 		}
-		FSEEK64(in, here, SEEK_SET);
+		if (FSEEK64(in, here, SEEK_SET)) return 0;
 	}
 	/* Keep data start + length representable even if the file size is unknown. */
 	{
@@ -721,27 +497,27 @@ int wav_open(FILE *in, wavegain_opt *opt,
 			len = INT64_MAX - here;
 	}
 
+	current_pos = FTELL64(in);
+	if (current_pos >= 0) {
+		opt->data_start = current_pos;
+		opt->data_end = current_pos + len;
+		current_pos_t = opt->data_end;
+	}
 	if (opt->apply_gain) {
-		current_pos = FTELL64(in);
-		current_pos_t = current_pos + len;
-		FSEEK64(in, 0, SEEK_SET);
-		if ((opt->header = malloc(sizeof(char) * current_pos)) == NULL)
-			fprintf(stderr, "Error: unable to allocate memory for header\n");
-		else {
-			opt->header_size = current_pos;
-			if (fread(opt->header, 1, opt->header_size, in) < (size_t)opt->header_size)
-				fprintf(stderr, "Warning: Failed to read WAV header when applying gain\n");
-			/* Keep an RF64 header as RIFF + a JUNK placeholder: the writer
-			 * patches RIFF, and turns it back into RF64 if it exceeds 4 GiB. */
-			if (rf64 && opt->header_size >= 48 && !memcmp(opt->header + 12, "ds64", 4) &&
-			    READ_U32_LE(opt->header + 16) >= 28) {
-				memcpy(opt->header, "RIFF", 4);
-				memcpy(opt->header + 12, "JUNK", 4);
-				memset(opt->header + 20, 0, 28);
-				opt->rf64 = 1;
-			}
+		if (current_pos < 12 || current_pos > INT_MAX || FSEEK64(in, 0, SEEK_SET)) return 0;
+		opt->header = malloc((size_t)current_pos);
+		if (!opt->header) return 0;
+		opt->header_size = (int)current_pos;
+		if (fread(opt->header, 1, (size_t)current_pos, in) != (size_t)current_pos) return 0;
+		/* The reserved RF64 chunk can be patched again on finalization. */
+		if (rf64 && opt->header_size >= 48 && !memcmp(opt->header + 12, "ds64", 4) &&
+		    READ_U32_LE(opt->header + 16) == 28) {
+			memcpy(opt->header, "RIFF", 4);
+			memcpy(opt->header + 12, "JUNK", 4);
+			memset(opt->header + 20, 0, 28);
+			opt->rf64 = 1;
 		}
-		FSEEK64(in, current_pos, SEEK_SET);
+		if (FSEEK64(in, current_pos, SEEK_SET)) return 0;
 	}
 
 	return setup_wav(in, opt, buf, fmt_size, len);
@@ -752,12 +528,13 @@ int setup_wav(FILE *in, wavegain_opt *opt, const unsigned char *buf,
 {
 	wav_fmt format;
 	int samplesize;
-	if (fmt_size < 16) return 0;
+	if (fmt_size < 16 || len < 0) return 0;
 	format.format = READ_U16_LE(buf);
 	format.channels = READ_U16_LE(buf+2);
 	format.samplerate = READ_U32_LE(buf+4);
 	format.align = READ_U16_LE(buf+12);
 	format.samplesize = READ_U16_LE(buf+14);
+	if (format.channels < 1 || format.channels > 2 || !format.samplerate) return 0;
 	if (format.format == WAVE_FORMAT_EXTENSIBLE && fmt_size < 40) return 0;
 	if(format.format == WAVE_FORMAT_PCM) {
 		samplesize = format.samplesize/8;
@@ -831,23 +608,10 @@ int setup_wav(FILE *in, wavegain_opt *opt, const unsigned char *buf,
 							of trying to abstract stuff. */
 		wav->samplesize = format.samplesize;
 
-		if (!format.channels)
-			opt->total_samples_per_channel = 0;
-		else if (opt->is_wave64 || len)
-			opt->total_samples_per_channel = len/(format.channels*samplesize);
-		else {
-			Int64_t pos;
-			pos = FTELL64(in);
-			if (FSEEK64(in, 0, SEEK_END) == -1)
-				opt->total_samples_per_channel = 0; /* Give up */
-			else {
-				opt->total_samples_per_channel = (FTELL64(in) - pos)/(format.channels * samplesize);
-				FSEEK64(in, pos, SEEK_SET);
-			}
-		}
+		opt->total_samples_per_channel = (Uint64_t)len / (format.channels * samplesize);
 		wav->totalsamples = opt->total_samples_per_channel;
 		wav->data_start = FTELL64(in);
-		wav->bounded = opt->is_wave64;
+		wav->bounded = 1;
 
 		opt->readdata = (void *)wav;
 		return 1;
@@ -890,78 +654,23 @@ long wav_read(void *in, double **buffer, int samples, int fast, Int64_t chunk)
 	realsamples = bytes_read / (sampbyte * f->channels);
 	f->samplesread += realsamples;
 		
-	if (f->samplesize == 8) {
-		unsigned char *bufu = (unsigned char *)buf;
-		for (i = 0; i < realsamples; i++) {
-			for (j = 0; j < f->channels; j++)
-				buffer[j][i] = ((int)(bufu[i * f->channels + j]) - 128) / 128.0;
-		}
-	}
-	else if (f->samplesize==16) {
-#ifdef __APPLE__
-		if (f->bigendian != machine_endianness) {
-#else
-		if (f->bigendian == machine_endianness) {
-#endif
-			for (i = 0; i < realsamples; i++) {
-				for (j = 0; j < f->channels; j++)
-					buffer[j][i] = ((buf[i * 2 * f->channels + 2 * j + 1] <<8) |
-							        (buf[i * 2 * f->channels + 2 * j] & 0xff)) / 32768.0;
+	if (ferror(f->f) || bytes_read % (sampbyte * f->channels) ||
+	    (!realsamples && f->bounded && f->samplesread < f->totalsamples)) return -1;
+	for (i = 0; i < realsamples; i++) {
+		for (j = 0; j < f->channels; j++) {
+			const unsigned char *p = (const unsigned char *)buf + (i * f->channels + j) * sampbyte;
+			uint32_t value = 0;
+			int b;
+			if (sampbyte == 1) {
+				buffer[j][i] = ((int)*p - 128) / 128.;
+				continue;
 			}
+			for (b = 0; b < sampbyte; b++)
+				value = (value << 8) | p[f->bigendian ? b : sampbyte - b - 1];
+			buffer[j][i] = ((value & (UINT32_C(1) << (f->samplesize - 1))) ?
+				(double)value - ldexp(1., f->samplesize) : (double)value) /
+				ldexp(1., f->samplesize - 1);
 		}
-		else {
-			for (i = 0; i < realsamples; i++) {
-				for (j = 0; j < f->channels; j++)
-					buffer[j][i]=((buf[i * 2 * f->channels + 2 * j] << 8) |
-							      (buf[i * 2 * f->channels + 2 * j + 1] & 0xff)) / 32768.0;
-			}
-		}
-	}
-	else if (f->samplesize == 24) {
-#ifdef __APPLE__
-		if (f->bigendian != machine_endianness) {
-#else
-		if (f->bigendian == machine_endianness) {
-#endif
-			for (i = 0; i < realsamples; i++) {
-				for (j = 0; j < f->channels; j++) 
-					buffer[j][i] = ((buf[i * 3 * f->channels + 3 * j + 2] << 16) |
-						(((unsigned char *)buf)[i * 3 * f->channels + 3 * j + 1] << 8) |
-						(((unsigned char *)buf)[i * 3 * f->channels + 3 * j] & 0xff)) 
-						/ 8388608.0;
-			}
-		}
-		else {
-			fprintf(stderr, "Big endian 24 bit PCM data is not currently "
-					"supported, aborting.\n");
-			return 0;
-		}
-	}
-	else if (f->samplesize == 32) {
-#ifdef __APPLE__
-		if (f->bigendian != machine_endianness) {
-#else
-		if (f->bigendian == machine_endianness) {
-#endif
-			for (i = 0; i < realsamples; i++) {
-				for (j = 0; j < f->channels; j++)
-					buffer[j][i] = ((buf[i * 4 * f->channels + 4 * j + 3] << 24) |
-						(((unsigned char *)buf)[i * 4 * f->channels + 4 * j + 2] << 16) |
-						(((unsigned char *)buf)[i * 4 * f->channels + 4 * j + 1] << 8) |
-						(((unsigned char *)buf)[i * 4 * f->channels + 4 * j] & 0xff)) 
-						/ 2147483648.0;
-			}
-		}
-		else {
-			fprintf(stderr, "Big endian 32 bit PCM data is not currently "
-					"supported, aborting.\n");
-			return 0;
-		}
-	}
-	else {
-		fprintf(stderr, "Internal error: attempt to read unsupported "
-				"bitdepth %d\n", f->samplesize);
-		return 0;
 	}
 
 	return realsamples;
@@ -995,9 +704,16 @@ long wav_ieee_read(void *in, double **buffer, int samples, int fast, Int64_t chu
 	realsamples = bytes_read / (4 * f->channels);
 	f->samplesread += realsamples;
 
-	for (i = 0; i < realsamples; i++)
-		for (j = 0; j < f->channels; j++)
-			buffer[j][i] = buf[i * f->channels + j];
+	if (ferror(f->f) || bytes_read % (4 * f->channels) ||
+	    (!realsamples && f->bounded && f->samplesread < f->totalsamples)) return -1;
+	for (i = 0; i < realsamples; i++) {
+		for (j = 0; j < f->channels; j++) {
+			uint32_t bits = READ_U32_LE((unsigned char *)buf + (i * f->channels + j) * 4);
+			float value;
+			memcpy(&value, &bits, sizeof(value));
+			buffer[j][i] = value;
+		}
+	}
 
 	return realsamples;
 }
@@ -1046,6 +762,67 @@ static void put_le(unsigned char *p, Uint64_t n, int bytes)
 	for (i = 0; i < bytes; i++, n >>= 8) p[i] = (unsigned char)n;
 }
 
+/* Locate chunks structurally, including padding. Never search their payloads.
+ * This also validates the entire saved prefix before any output is opened. */
+static int wav_header_layout(const wavegain_opt *opt, size_t *fmt, size_t *gain)
+{
+	size_t pos = 12, end;
+	*fmt = *gain = 0;
+	if (!opt->header || opt->header_size < 12 || memcmp(opt->header, "RIFF", 4) ||
+	    memcmp(opt->header + 8, "WAVE", 4)) return 0;
+	end = (size_t)opt->header_size;
+	while (pos <= end && end - pos >= 8) {
+		const unsigned char *p = opt->header + pos;
+		Uint64_t length = READ_U32_LE(p + 4), padded = length + (length & 1);
+		if (!memcmp(p, "data", 4))
+			return *fmt && pos == end - 8 && !!*gain == !!opt->gain_chunk;
+		if (padded > end - pos - 8) return 0;
+		if (!memcmp(p, "fmt ", 4)) {
+			if (*fmt || length < 16) return 0;
+			*fmt = pos;
+		} else if (!memcmp(p, "gain", 4)) {
+			if (*gain || length != 8) return 0;
+			*gain = pos;
+		}
+		pos += 8 + (size_t)padded;
+	}
+	return 0;
+}
+
+static int prepare_wav_header(wavegain_opt *opt)
+{
+	size_t fmt, gain, at;
+	unsigned char *grown;
+	if (!opt->header) {
+		opt->header = calloc(1, 44);
+		if (!opt->header) return 0;
+		opt->header_size = 44;
+		memcpy(opt->header, "RIFF", 4);
+		memcpy(opt->header + 8, "WAVEfmt ", 8);
+		put_le(opt->header + 16, 16, 4);
+		memcpy(opt->header + 36, "data", 4);
+	}
+	if (!wav_header_layout(opt, &fmt, &gain)) return 0;
+	if (opt->write_chunk && !gain) {
+		if (opt->header_size > INT_MAX - 16) return 0;
+		/* Keep the historical insertion immediately after the real fmt chunk. */
+		at = fmt + 8 + READ_U32_LE(opt->header + fmt + 4);
+		at += at & 1;
+		grown = malloc((size_t)opt->header_size + 16);
+		if (!grown) return 0;
+		memcpy(grown, opt->header, at);
+		memcpy(grown + at, "gain", 4);
+		put_le(grown + at + 4, 8, 4);
+		memset(grown + at + 8, 0, 8);
+		memcpy(grown + at + 16, opt->header + at, (size_t)opt->header_size - at);
+		free(opt->header);
+		opt->header = grown;
+		opt->header_size += 16;
+		opt->gain_chunk = 1;
+	}
+	return 1;
+}
+
 /* Reserve a JUNK chunk right after "WAVE" that can become ds64 when the
  * output exceeds 4 GiB (EBU Tech 3306). finish_rf64 writes a 28-byte ds64 in
  * place, so only a JUNK chunk of exactly 28 bytes (for example from RF64
@@ -1057,7 +834,7 @@ static int reserve_ds64(wavegain_opt *opt)
 	if (opt->header_size >= 48 && !memcmp(opt->header + 12, "JUNK", 4) &&
 	    READ_U32_LE(opt->header + 16) == 28)
 		return 1;
-	if (!opt->header || opt->header_size < 12 ||
+	if (!opt->header || opt->header_size < 12 || opt->header_size > INT_MAX - 36 ||
 	    (grown = malloc((size_t)opt->header_size + 36)) == NULL)
 		return 0;
 	memcpy(grown, opt->header, 12);
@@ -1093,12 +870,14 @@ static int finish_rf64(audio_file *aufile, wavegain_opt *opt, Int64_t file_end)
 
 audio_file *open_output_audio_file(char *infile, wavegain_opt *opt)
 {
-	/* AIFF retains 32-bit FORM/SSND sizes even for a Wave64 source. */
-	if (opt->is_wave64 && opt->format == WAV_FMT_AIFF &&
+	/* AIFF retains 32-bit sizes for every input container. */
+	if (opt->format == WAV_FMT_AIFF &&
 	    opt->total_samples_per_channel > (UINT32_MAX - 46) / (opt->channels * 2)) {
 		fprintf(stderr, " Error: audio exceeds the AIFF size limit.\n");
 		return NULL;
 	}
+	if (!opt->is_wave64 && opt->format != WAV_FMT_AIFF && !prepare_wav_header(opt))
+		return NULL;
 	/* WAV output over 4 GiB keeps 0xFFFFFFFF sizes (an "oversized" WAV that
 	 * most readers play to EOF) unless --rf64 asks for RF64 instead. */
 	if (opt->rf64 && !opt->is_wave64 && opt->format != WAV_FMT_AIFF) {
@@ -1137,28 +916,32 @@ audio_file *open_output_audio_file(char *infile, wavegain_opt *opt)
 		return NULL;
 	}
 
-	if (opt->is_wave64 && aufile->outputFormat != WAV_FMT_AIFF) {
-		if (!w64_write_header(aufile, opt)) {
-			fclose(aufile->sndfile);
+	{
+		int ok;
+		if (opt->is_wave64 && aufile->outputFormat != WAV_FMT_AIFF)
+			ok = w64_write_header(aufile, opt);
+		else if (aufile->outputFormat == WAV_FMT_AIFF) {
+			if (opt->std_out) aufile->samples = opt->total_samples_per_channel * opt->channels;
+			ok = write_aiff_header(aufile);
+			aufile->samples = 0;
+		} else {
+			Int64_t size = UINT32_MAX;
+			if (opt->std_out) {
+				Uint64_t bytes = opt->total_samples_per_channel * opt->channels * (opt->samplesize / 8);
+				if (bytes > (Uint64_t)INT64_MAX - opt->header_size - 1) ok = 0;
+				else {
+					size = opt->header_size - 8 + (Int64_t)bytes + (bytes & 1);
+					aufile->samples = opt->total_samples_per_channel * opt->channels;
+					ok = write_wav_header(aufile, opt, size);
+					aufile->samples = 0;
+				}
+			} else ok = write_wav_header(aufile, opt, size);
+		}
+		if (!ok || ferror(aufile->sndfile)) {
+			if (!opt->std_out) { fclose(aufile->sndfile); remove(infile); }
 			free(aufile);
 			return NULL;
 		}
-		return aufile;
-	}
-
-	switch (aufile->outputFormat) {
-		case WAV_FMT_AIFF:
-			write_aiff_header(aufile);
-			break;
-		case WAV_FMT_8BIT:
-		case WAV_FMT_16BIT:
-		case WAV_FMT_24BIT:
-		case WAV_FMT_32BIT:
-		case WAV_FMT_FLOAT: {
-			unsigned int file_size = 0xffffffff;
-			write_wav_header(aufile, opt, file_size);
-			}
-			break;
 	}
 
 	return aufile;
@@ -1185,71 +968,61 @@ int write_audio_file(audio_file *aufile, void *sample_buffer, int samples)
 	return 0;
 }
 
-int close_audio_file( FILE *in, audio_file *aufile, wavegain_opt *opt)
+/* Copy trailing RIFF metadata with bounded memory and checked I/O. */
+static int copy_wav_tail(FILE *in, FILE *out, const wavegain_opt *opt)
 {
-	unsigned char *ch;
-	Int64_t pos;
-	int ok = 1;
-
-	if (opt->is_wave64 && aufile->outputFormat != WAV_FMT_AIFF) {
-		ok = w64_finish(in, aufile, opt);
+	unsigned char buffer[65536];
+	Int64_t end, pos = opt->data_end;
+	/* A newly constructed WAV from AIFF has no RIFF metadata to copy. */
+	if (!opt->data_start) return 1;
+	if (FSEEK64(in, 0, SEEK_END) || (end = FTELL64(in)) < pos) return 0;
+	if ((pos - opt->data_start) & 1) {
+		if (pos < end) pos++; /* skip the old data padding, if present */
 	}
-	else if (!opt->std_out) {
+	if (FSEEK64(in, pos, SEEK_SET)) return 0;
+	while (pos < end) {
+		size_t count = end - pos > (Int64_t)sizeof(buffer) ? sizeof(buffer) : (size_t)(end - pos);
+		if (fread(buffer, 1, count, in) != count || fwrite(buffer, 1, count, out) != count)
+			return 0;
+		pos += (Int64_t)count;
+	}
+	return 1;
+}
 
-		switch (aufile->outputFormat) {
-			case WAV_FMT_AIFF:
-				FSEEK64(aufile->sndfile, 0, SEEK_SET);
-				write_aiff_header(aufile);
-				break;
-			case WAV_FMT_8BIT:
-			case WAV_FMT_16BIT:
-			case WAV_FMT_24BIT:
-			case WAV_FMT_32BIT:
-			case WAV_FMT_FLOAT: {
-				FSEEK64(in, 0, SEEK_END);
-				pos = FTELL64 (in);
-				if ((pos - current_pos_t) > 0) {
-					FSEEK64 (in, current_pos_t, SEEK_SET);
-					ch = malloc (sizeof(char) * (pos - current_pos_t));
-
-					if (fread (ch, 1, pos - current_pos_t, in) < (pos - current_pos_t))
-						fprintf(stderr, "Warning: Failed to read input audio file when closing output file\n");
-					fwrite (ch, pos - current_pos_t, 1, aufile->sndfile);
-
-					if (ch)
-						free (ch);
-				}
-				FSEEK64(aufile->sndfile, 0, SEEK_END);
-				pos = FTELL64 (aufile->sndfile);
-				if (pos < 8) {
-					ok = 0;
-					break;
-				}
-				FSEEK64(aufile->sndfile, 0, SEEK_SET);
-				write_wav_header(aufile, opt, pos - 8);
-				if ((Uint64_t)(pos - 8) > UINT32_MAX) {
-					if (opt->rf64) {
-						if (!finish_rf64(aufile, opt, pos)) ok = 0;
-					}
-					else
-						fprintf(stderr, " Warning: output exceeds 4 GiB; WAV sizes are set to"
-						                " 0xFFFFFFFF (use --rf64 to write RF64).\n");
-				}
-				break;
+int close_audio_file(FILE *in, audio_file *aufile, wavegain_opt *opt)
+{
+	Int64_t pos;
+	int ok = !ferror(in) && !ferror(aufile->sndfile);
+	if (opt->is_wave64 && aufile->outputFormat != WAV_FMT_AIFF) {
+		if (!w64_finish(in, aufile, opt)) ok = 0;
+	} else if (aufile->outputFormat == WAV_FMT_AIFF) {
+		if (!opt->std_out && (FSEEK64(aufile->sndfile, 0, SEEK_SET) ||
+		    !write_aiff_header(aufile))) ok = 0;
+	} else {
+		/* Regenerate padding for the output width, then copy the source tail. */
+		if ((aufile->samples * (opt->samplesize / 8)) & 1)
+			if (fputc(0, aufile->sndfile) == EOF) ok = 0;
+		if (!opt->std_out) {
+			if (!copy_wav_tail(in, aufile->sndfile, opt)) ok = 0;
+			pos = FTELL64(aufile->sndfile);
+			if (pos < 8 || FSEEK64(aufile->sndfile, 0, SEEK_SET) ||
+			    !write_wav_header(aufile, opt, pos - 8)) ok = 0;
+			else if ((Uint64_t)(pos - 8) > UINT32_MAX) {
+				if (opt->rf64) {
+					if (!finish_rf64(aufile, opt, pos)) ok = 0;
+				} else fprintf(stderr, " Warning: output exceeds 4 GiB; WAV sizes are set to"
+				                        " 0xFFFFFFFF (use --rf64 to write RF64).\n");
 			}
 		}
 	}
-
-	if(opt->header)
-		free(opt->header);
-	if(opt)
-		free(opt);
-
+	if (ferror(aufile->sndfile)) ok = 0;
+	if (opt->std_out) {
+		if (fflush(aufile->sndfile)) ok = 0;
+	} else if (fclose(aufile->sndfile)) ok = 0;
+	free(opt->header);
+	free(opt);
 	free(aufile->scratch);
-	if (fclose(aufile->sndfile)) ok = 0;
-
-	if (aufile)
-		free(aufile);
+	free(aufile);
 	return ok;
 }
 
@@ -1263,120 +1036,23 @@ int close_audio_file( FILE *in, audio_file *aufile, wavegain_opt *opt)
 
 int write_wav_header(audio_file *aufile, wavegain_opt *opt, Int64_t file_size)
 {
-	unsigned short channels    = opt->channels;
-	unsigned long samplerate   = opt->rate;
-	unsigned long bytespersec  = opt->channels * opt->rate * opt->samplesize / 8;
-	unsigned short align       = opt->channels * opt->samplesize / 8;
-	unsigned short samplesize  = opt->samplesize;
-	unsigned long size         = file_size > 0xffffffff ? 0xffffffff : (unsigned long)file_size;
-	unsigned long data_size    = aufile->samples * (opt->samplesize / 8) < 0xffffffff ?
-					aufile->samples * (opt->samplesize / 8) : 0xffffffff;	
-
-	unsigned long sz_fmt;
-	unsigned char *p = opt->header;
-	unsigned char *q;
-	unsigned char *r;
-//	unsigned char buf[8];
-	unsigned long chunks_to_process;
-	unsigned long no_of_chunks_processed = 0;
-
-	if ((opt->force || opt->undo) && opt->gain_chunk)
-		chunks_to_process = 3;
-	else
-		chunks_to_process = 2;
-
-	for (;;) {
-		if (!memcmp(p, "RIFF", 4)) {
-			p += 4;
-			WRITE_U32(p, size);
-			p += 4;
-			no_of_chunks_processed++;
-		}
-		if (!memcmp(p, "fmt ", 4)) {
-			unsigned long fmt_length = 0;
-			p += 4;
-			sz_fmt = READ_U32_LE(p);
-			p += 4;
-			if (aufile->outputFormat == WAV_FMT_FLOAT) {
-				WRITE_U16(p, 3);
-			}
-			else {
-				WRITE_U16(p, 1);
-			}
-			p += 2;
-			fmt_length += 2;
-			WRITE_U16(p, channels);
-			p += 2;
-			fmt_length += 2;
-			WRITE_U32(p, samplerate);
-			p += 4;
-			fmt_length += 4;
-			WRITE_U32(p, bytespersec);
-			p += 4;
-			fmt_length += 4;
-			WRITE_U16(p, align);
-			p += 2;
-			fmt_length += 2;
-			WRITE_U16(p, samplesize);
-			p += 2;
-			fmt_length += 2;
-			p += sz_fmt - fmt_length;
-			no_of_chunks_processed++;
-		}
-		if (chunks_to_process == 3) {
-			if (!memcmp(p, "gain", 4)) {
-				p += 8;
-				WRITE_D64(p, opt->gain_scale);
-				p += 8;
-				no_of_chunks_processed++;
-			}
-		}
-		if (no_of_chunks_processed == chunks_to_process)
-			break;
-		else
-			p++;
-	}
-
-	if (opt->write_chunk == 1 && !opt->gain_chunk) {
-		if ((q = malloc(sizeof(char) * (opt->header_size + 16))) == NULL)
-			fprintf(stderr, "Error: unable to allocate memory for header\n");
-		else {
-			r = q;
-			memcpy(r, opt->header, p - opt->header);
-			r += (p - opt->header);
-			memcpy(r, "gain", 4);
-			r += 4;
-			WRITE_U32(r, 8);
-			r += 4;
-//			buf = (unsigned char *)&opt->gain_scale;
-			WRITE_D64(r, opt->gain_scale);
-			r += 8;
-		}
-
-		memcpy(r, p, (opt->header_size - (p - opt->header)));
-
-		r = q + opt->header_size + 16 - 8;
-		if (!memcmp(r, "data", 4)) {
-			r += 4;
-			WRITE_U32(r, data_size);
-			r += 4;
-			fwrite(q, opt->header_size + 16, 1, aufile->sndfile);
-		}
-		else
-			fprintf(stderr, "Error: unable to write header\n");
-		if(q) free(q);
-	}
-	else {
-		p = opt->header + opt->header_size - 8;
-		if (!memcmp(p, "data", 4)) {
-			p += 4;
-			WRITE_U32(p, data_size);
-			p += 4;
-			fwrite(opt->header, opt->header_size, 1, aufile->sndfile);
-		}
-	}
-
-	return 1;
+	size_t fmt, gain;
+	unsigned char *p;
+	Uint64_t bytes;
+	if (file_size < 0 || !wav_header_layout(opt, &fmt, &gain) ||
+	    aufile->samples > UINT64_MAX / (opt->samplesize / 8)) return 0;
+	bytes = aufile->samples * (opt->samplesize / 8);
+	put_le(opt->header + 4, file_size > UINT32_MAX ? UINT32_MAX : (Uint64_t)file_size, 4);
+	p = opt->header + fmt + 8;
+	put_le(p, aufile->outputFormat == WAV_FMT_FLOAT ? WAVE_FORMAT_IEEE_FLOAT : WAVE_FORMAT_PCM, 2);
+	put_le(p + 2, opt->channels, 2);
+	put_le(p + 4, opt->rate, 4);
+	put_le(p + 8, (Uint64_t)opt->rate * opt->channels * (opt->samplesize / 8), 4);
+	put_le(p + 12, opt->channels * (opt->samplesize / 8), 2);
+	put_le(p + 14, opt->samplesize, 2);
+	if (gain) WRITE_D64(opt->header + gain + 8, opt->gain_scale);
+	put_le(opt->header + opt->header_size - 4, bytes > UINT32_MAX ? UINT32_MAX : bytes, 4);
+	return fwrite(opt->header, 1, (size_t)opt->header_size, aufile->sndfile) == (size_t)opt->header_size;
 }
 
 /*
@@ -1416,6 +1092,8 @@ int write_aiff_header(audio_file *aufile)
 	unsigned long    data_size = aufile->samples * bytes;
 	unsigned long       word32;
 
+	if (!aufile->channels || bytes != 2 || aufile->samples > (UINT32_MAX - 46) / bytes)
+		return 0;
 	// FORM chunk
 	*p++ = 'F';
 	*p++ = 'O';

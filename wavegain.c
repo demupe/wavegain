@@ -63,12 +63,18 @@
 #include "recurse.h"
 #endif
 
-/*Gcc uses LL as a suffix for long long int (64 bit) types - Marc Brooker 8/4/2004*/
-#ifdef __GNUC__
-#define ROUND64(x)   ( doubletmp = (x) + Dither.Add + (Int64_t)0x001FFFFD80000000LL, *(Int64_t*)(&doubletmp) - (Int64_t)0x433FFFFD80000000LL )
-#else
-#define ROUND64(x)   ( doubletmp = (x) + Dither.Add + (Int64_t)0x001FFFFD80000000L, *(Int64_t*)(&doubletmp) - (Int64_t)0x433FFFFD80000000L )
-#endif
+/* Preserve the legacy quantizer's bit arithmetic without aliasing a double. */
+static Int64_t round64(double value)
+{
+	Int64_t bits;
+	/* Values this far beyond PCM range must saturate before the bit trick. */
+	if (value > 0x1p40) return INT64_C(2147483648);
+	if (value < -0x1p40) return -INT64_C(2147483648);
+	double rounded = value + Dither.Add + (Int64_t)0x001FFFFD80000000LL;
+	memcpy(&bits, &rounded, sizeof(bits));
+	return bits - (Int64_t)0x433FFFFD80000000LL;
+}
+#define ROUND64(x) round64(x)
 
 #ifndef _WIN32
 #define _snprintf snprintf
@@ -92,6 +98,8 @@ Int64_t dither_output(int dithering, int shapingtype, int i, double Sum, int k, 
 {
 	double Sum2;
 	Int64_t val;
+	/* Avoid overflowing the quantizer/history on extreme float or undo gain. */
+	Sum = fmax(-2147483648., fmin(2147483648., Sum));
 	if(dithering) {
 		if(!shapingtype) {
 			double  tmp = Random_Equi ( Dither.Dither );
@@ -192,7 +200,7 @@ int get_gain(const char *filename, double *track_peak, double *track_gain,
         fprintf(stderr, " Unsupported input file %s.\n", filename); goto done;
     }
     if (opt.gain_chunk && !settings->force) {
-        fprintf(stderr, " Skipping File %s, it has already been processed.\n", filename); goto done;
+        fprintf(stderr, " Skipping File %s, it has already been processed.\n", filename); ok = 2; goto done;
     }
     if ((settings->first_file || !settings->audiophile ? InitGainAnalysis(opt.rate) :
          ResetSampleFrequency(opt.rate)) != INIT_GAIN_ANALYSIS_OK) {
@@ -254,6 +262,7 @@ int get_gain(const char *filename, double *track_peak, double *track_gain,
 done:
     free(buffer[0]); free(buffer[1]);
     if (opt.readdata) wav_close(opt.readdata);
+    free(opt.header);
     if (in && in != stdin) fclose(in);
     return ok;
 }
@@ -280,9 +289,11 @@ int write_gains(const char *filename, double radio_gain, double audiophile_gain,
                 double TitlePeak __attribute__((unused)),
                 double *dc_offset, double *album_dc_offset, SETTINGS *settings)
 {
-	wavegain_opt *wg_opts = malloc(sizeof(wavegain_opt));
-	FILE         *infile;
-	audio_file   *aufile;
+	wavegain_opt *wg_opts = calloc(1, sizeof(*wg_opts));
+	FILE         *infile = NULL;
+	audio_file   *aufile = NULL;
+	double       *pcm[2] = {NULL, NULL};
+	int          temp_created = 0, keep_temp = 0;
 	int          readcount,
 	             result = 0,
 	             output_failed = 0,
@@ -297,13 +308,13 @@ int write_gains(const char *filename, double radio_gain, double audiophile_gain,
 	input_format *format;
 
 	char         template[] = ".tmp_XXXXXX";
-	int          tempSize = strlen(filename) + strlen(template) + 1;
+	size_t       tempSize = strlen(filename) + sizeof(template);
 	char*        tempName = NULL;
 #ifndef _WIN32
 	struct stat  fst;	/* owner and permissions are copied on POSIX only */
 #endif
 
-	memset(wg_opts, 0, sizeof(wavegain_opt));
+	if (!wg_opts) goto exit;
 
 	wg_opts->force = settings->force;
 	wg_opts->undo = settings->undo;
@@ -324,46 +335,35 @@ int write_gains(const char *filename, double radio_gain, double audiophile_gain,
 
 	format = open_audio_file(infile, wg_opts);
 	if (!format) {
-		if (wg_opts->readdata) wav_close(wg_opts->readdata);
-		if (wg_opts)
-			free(wg_opts);
-		fclose(infile);
-		/* error reported by reader */
-		fprintf (stderr, " Unrecognized file format for %s.\n", filename) ;
+		fprintf(stderr, " Unrecognized file format for %s.\n", filename);
+		goto exit;
 	}
-	else if (wg_opts->undo && !wg_opts->gain_chunk) {
-		format->close_func(wg_opts->readdata);
-		if (wg_opts)
-			free(wg_opts);
-		fclose(infile);
+	if (wg_opts->channels < 1 || wg_opts->channels > 2) goto exit;
+	if (wg_opts->undo && !wg_opts->gain_chunk) {
 		fprintf(stderr, " Skipping file: %s - 'gain' chunk not found.\n", filename);
-		if (write_to_log) {
-			write_log(" Skipping file: %s - 'gain' chunk not found.\n", filename);
-		}
+		if (write_to_log) write_log(" Skipping file: %s - 'gain' chunk not found.\n", filename);
 		result = 1;
+		goto exit;
 	}
-	else if (wg_opts->gain_scale == 1.0 && !wg_opts->force) {
-		format->close_func(wg_opts->readdata);
-		if (wg_opts)
-			free(wg_opts);
-		fclose(infile);
+	if (wg_opts->gain_chunk && wg_opts->gain_scale == 1.0 && !wg_opts->force) {
 		fprintf(stderr, " Skipping file: %s - Gain already undone.\n", filename);
-		if (write_to_log) {
-			write_log(" Skipping file: %s - Gain already undone.\n", filename);
-		}
+		if (write_to_log) write_log(" Skipping file: %s - Gain already undone.\n", filename);
 		result = 1;
+		goto exit;
 	}
-	else {
-		double **pcm = malloc(sizeof(double *) * wg_opts->channels);
-
-		for (i = 0; i < wg_opts->channels; i++)
+	{
+		for (i = 0; i < wg_opts->channels; i++) {
 			pcm[i] = malloc(BUFFER_LEN * sizeof(double));
+			if (!pcm[i]) goto exit;
+		}
 
 		switch(settings->format) {
 			case WAV_NO_FMT:
 				if (wg_opts->format == WAV_FMT_AIFF || wg_opts->format == WAV_FMT_AIFC8
 								   || wg_opts->format == WAV_FMT_AIFC16) {
 					wg_opts->format = WAV_FMT_AIFF;
+					wg_opts->samplesize = 16;
+					wg_opts->endianness = BIG;
 					wrap_prev_pos = 0x7fff;
 					wrap_prev_neg = -0x8000;
 				}
@@ -391,6 +391,7 @@ int write_gains(const char *filename, double radio_gain, double audiophile_gain,
 			case WAV_FMT_8BIT:
 				wg_opts->format = WAV_FMT_8BIT;
 				wg_opts->samplesize = 8;
+				wg_opts->endianness = LITTLE;
 				wrap_prev_pos = 0x7f;
 				wrap_prev_neg = -0x80;
 				break;
@@ -462,10 +463,9 @@ int write_gains(const char *filename, double radio_gain, double audiophile_gain,
 
 		if (aufile == NULL) {
 			fprintf (stderr, " Not able to open output file %s.\n", tempName);
-			fclose(infile);
-			if (!settings->std_out) remove(tempName);
 			goto exit;
 		}
+		temp_created = !settings->std_out;
 
 		fprintf(stderr, "                                             \r");
 		fprintf(stderr, " Applying Gain of %+5.2lf dB to file: %s\n", Gain, filename);
@@ -532,6 +532,10 @@ int write_gains(const char *filename, double radio_gain, double audiophile_gain,
 					for(j = 0; j < bout; j++, i++) {
 						Int64_t val;
 						double Sum;
+						if (!isfinite(pcm[k][j])) {
+							output_failed = 1;
+							goto conversion_done;
+						}
 
 						if (!settings->no_offset) {
 							if (settings->adc)
@@ -578,38 +582,30 @@ int write_gains(const char *filename, double radio_gain, double audiophile_gain,
 		}
 conversion_done:
 		free(sample_buffer);
-		for (i = 0; i < wg_opts->channels; i++)
-			if (pcm[i]) free(pcm[i]);
-		if (pcm) free(pcm);
-		format->close_func(wg_opts->readdata);
-		if (!close_audio_file(infile, aufile, wg_opts) || output_failed) {
-			fclose(infile);
-			if (!settings->std_out) remove(tempName);
-			fprintf(stderr, " Error finalizing output; original file preserved.\n");
-			goto exit;
+		sample_buffer = NULL;
+		wav_close(wg_opts->readdata);
+		wg_opts->readdata = NULL;
+		{
+			int finalized = close_audio_file(infile, aufile, wg_opts);
+			wg_opts = NULL;
+			aufile = NULL;
+			if (!finalized || output_failed) {
+				fprintf(stderr, " Error finalizing output; original file preserved.\n");
+				goto exit;
+			}
 		}
-        fclose(infile);
+		if (fclose(infile)) { infile = NULL; goto exit; }
+		infile = NULL;
         fprintf(stderr, "This file 100%% done\tAll files %3.0f%% done\r",
                 settings->progress_total > 0. ? fmin(100., 100. * settings->progress_done / settings->progress_total) : 100.);
 
         if (!settings->std_out) {
-#ifdef _WIN32
-			/* WIN32's rename(temp, original) does not allow original to exist,
-			 * so we must remove() it first. Ideally, there should be a way
-			 * to remove+rename in a single, atomic function, so if either one
-			 * fails, the original file is preserved.
-			 */
-			if (remove(filename) != 0) {
-				fprintf(stderr, " Error deleting old file '%s'\n", filename);
-				goto exit;
-			}
-#endif
 #ifndef _WIN32
 			/* copy owner, group, permissions from original to output */
 			/* TODO: add -p|--preserve=[=ATTR_LIST] (see `man cp`) and only copy
 			 * attributes if enabled. Silently ignore errors on EPERM
 			 */
-			stat(filename, &fst);
+			if (stat(filename, &fst)) goto exit;
 			if (
 				/* FIXME: Could/Should both calls be perfomed in a single step? */
 				chown(tempName, fst.st_uid, -1) != 0 ||
@@ -618,15 +614,30 @@ conversion_done:
 				fprintf(stderr, "Warning: could not change file owner: %s (%s)\n", tempName, filename);
 			chmod(tempName, fst.st_mode);
 #endif
+#ifdef _WIN32
+			if (!MoveFileExA(tempName, filename, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+#else
 			if (rename(tempName, filename) != 0) {
-				fprintf(stderr, " Error renaming '%s' to '%s' (uh-oh)\n", tempName, filename);
+#endif
+				keep_temp = 1;
+				fprintf(stderr, " Error replacing '%s'; completed output kept at '%s'.\n", filename, tempName);
 				goto exit;
 			}
+			temp_created = 0;
 		}
 		result = 1;
 	}
 exit:
-	if(tempName) free(tempName);
+	free(sample_buffer);
+	for (i = 0; i < 2; i++) free(pcm[i]);
+	if (wg_opts) {
+		if (wg_opts->readdata) wav_close(wg_opts->readdata);
+		free(wg_opts->header);
+		free(wg_opts);
+	}
+	if (infile) fclose(infile);
+	if (temp_created && !keep_temp) remove(tempName);
+	free(tempName);
 	return result;
 }
 

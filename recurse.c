@@ -122,7 +122,7 @@ static int contains_pattern(const char* string)
 inline static int equal(const char c1, const char c2)
 {
 #ifdef _WIN32
-	return (toupper(c1) == toupper(c2)) ? 1 : 0;
+	return (toupper((unsigned char)c1) == toupper((unsigned char)c2)) ? 1 : 0;
 #else
 	return (c1 == c2) ? 1 : 0;
 #endif
@@ -343,8 +343,9 @@ static DIRECTORY *open_dir(const char *full_path)
 
 		/* Could get "no more files" here, but not likely, due to "." and ".." */
 
+		file_error(_("Couldn't scan directory '%s': "), full_path);
+		if (result->dir) closedir(result->dir);
 		free(result);
-		file_error(_("Couldn't scan directory '%s': "), result->full_path);
 		return NULL;
 	}
 
@@ -363,6 +364,7 @@ static DIRECTORY *open_dir(const char *full_path)
  */
 static int read_dir(DIRECTORY *directory)
 {
+	errno = 0;
 	directory->entry = readdir(directory->dir);
 
 	if (directory->entry != NULL) {
@@ -471,6 +473,12 @@ static int process_directory(const char* current, const char* path, SETTINGS* se
 				dir = is_dir(directory->name);
 
 				if (dir > 0) {
+#ifndef _WIN32
+					/* Do not follow directory symlinks into recursive cycles. */
+					struct stat entry_stat;
+					if (lstat(directory->name, &entry_stat) != 0) { result = -1; break; }
+					if (S_ISLNK(entry_stat.st_mode)) continue;
+#endif
 					if (settings->recursive)
 						result = process_directory(full_path, directory->name, settings);
 				}
@@ -498,9 +506,9 @@ static int process_directory(const char* current, const char* path, SETTINGS* se
 
 		free_list(file_list);
 
-		if ((result == 0) && (chdir(old_path) != 0)) {
+		if (chdir(old_path) != 0) {
 			file_error(_("Couldn't go back to folder '%s': "), old_path);
-			result = 0;
+			result = -1;
 		}
 	}
 	else

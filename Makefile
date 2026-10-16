@@ -27,7 +27,6 @@ all: release
 # -Wall: Enables all the warnings about constructions that some users consider questionable, and that are easy to avoid
 # -Wextra: Enables some extra warning flags that are not enabled by -Wall
 debug: CFLAGS += -g3 -Og -Wall -Wextra -Wpedantic -D_FORTIFY_SOURCE=2
-debug: clean $(TARGET)
 
 # RELEASE Build
 # Stripped binary, maximum optimization
@@ -35,7 +34,11 @@ debug: clean $(TARGET)
 # -O2: Optimize level 2 and activate default FORTIFY_SOURCE=2 in most setups
 # -D_FORTIFY_SOURCE=2: explicitely enable additional compile-time and run-time checks for several libc functions
 release: CFLAGS += -s -O2 -D_FORTIFY_SOURCE=2
-release: clean $(TARGET)
+
+# Run clean before compilation even with parallel make.
+debug release asan:
+	$(MAKE) clean
+	$(MAKE) $(TARGET) CC="$(CC)" CPPFLAGS="$(CPPFLAGS)" CFLAGS="$(CFLAGS)" DEFS="$(DEFS)" LDFLAGS="$(LDFLAGS)"
 
 # Serialize clean/build even under -j, then verify before callers install.
 # VERIFY_SIMD=auto accepts either filter backend once it matches the scalar
@@ -51,14 +54,18 @@ verified-release:
 	$(MAKE) $(TARGET) CC="$(CC)" CPPFLAGS="$(CPPFLAGS)" CFLAGS="$(CFLAGS)" DEFS="$(DEFS)" LDFLAGS="$(LDFLAGS)"
 	python3 test/filter_regressions.py --cc "$(CC)" --cflags="$(CPPFLAGS) $(CFLAGS) $(DEFS)" --ldflags="$(LDFLAGS) $(LIBS)" $(if $(filter 0 1,$(VERIFY_SIMD)),--expect-simd $(VERIFY_SIMD)) --cli "./$(TARGET)" || { $(RM) "$(TARGET)"; exit 1; }
 
-# ASAN (Address Sanitizer) build.
+# ASan and UBSan build.
 # Find some run-time errors that debug build misses.
 # -U_FORTIFY_SOURCE: Disable FORTIFY_SOURCE, supposedly does not play well with ASAN
-# -fsanitize=address: enable ASAN
+# -fsanitize=address,undefined: check memory safety and undefined behavior
 # -fno-omit-frame-pointer: recommended to generate better stack traces on debugging
 #: needed on some platforms to avoid run-time errors without using LD_PRELOAD
-asan: CFLAGS += -g3 -O2 -U_FORTIFY_SOURCE -fsanitize=address -fno-omit-frame-pointer
-asan: clean $(TARGET)
+SANITIZER_FLAGS = -g3 -O1 -U_FORTIFY_SOURCE -fsanitize=address,undefined -fno-omit-frame-pointer
+asan: CFLAGS += $(SANITIZER_FLAGS)
+
+check-sanitize:
+	$(MAKE) asan
+	UBSAN_OPTIONS=halt_on_error=1 $(MAKE) check CFLAGS="$(CFLAGS) $(SANITIZER_FLAGS)"
 
 $(TARGET): $(SOURCES) $(HEADERS) help_generated.h
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEFS) $(LDFLAGS) -o $(TARGET) $(SOURCES) $(LIBS)
@@ -74,8 +81,11 @@ check: $(TARGET) check-docs check-filters
 	./test/portability
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEFS) $(LDFLAGS) -UNDEBUG -o test/wave64 test/wave64.c $(LIBS)
 	./test/wave64
-	$(RM) test/portability test/wave64
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEFS) $(LDFLAGS) -UNDEBUG -o test/review_io test/review_io.c w64.c wavegain.c gain_analysis.c dither.c misc.c $(LIBS)
+	./test/review_io
+	$(RM) test/portability test/wave64 test/review_io
 	python3 test/todo_regressions.py
+	python3 test/review_regressions.py
 
 docs:
 	python3 tools/generate_help.py
@@ -92,8 +102,8 @@ check-interop: $(TARGET)
 	python3 test/riff_interop.py
 
 clean:
-	rm -f $(TARGET) test/portability test/wave64
+	rm -f $(TARGET) test/portability test/wave64 test/review_io
 
 distclean: clean
 
-.PHONY : all debug release verified-release asan install uninstall clean distclean check check-interop check-filters docs check-docs
+.PHONY : all debug release verified-release asan install uninstall clean distclean check check-sanitize check-interop check-filters docs check-docs

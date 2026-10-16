@@ -74,27 +74,11 @@ void write_log(const char *fmt, ...)
 {
 	va_list ap;
 	FILE *fp;
-	char msgbuf[1024];
-	char *bufp = msgbuf;
-
-	/*
-	 * A really rough sanity check to protect against blatant buffer overrun
-	 */
-	if (strlen(fmt) > 750)
-		sprintf(msgbuf, "%s %s", "<buffer overflow> ", fmt);
-	else {
-		va_start(ap, fmt);
-		vsprintf(bufp, fmt, ap);
-		va_end(ap);
-	}
-	if ((fp = fopen(log_file_name, "a")) == (FILE *)NULL)
-		return;
-
-	fprintf(fp, "%s", msgbuf);
-	fflush(fp);
-	fclose(fp);
-
+	if ((fp = fopen(log_file_name, "a")) == NULL) return;
+	va_start(ap, fmt);
+	vfprintf(fp, fmt, ap);
 	va_end(ap);
+	fclose(fp);
 }
 
 
