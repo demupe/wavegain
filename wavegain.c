@@ -230,8 +230,8 @@ void report_gain(FILE_LIST *file, const double *dc, SETTINGS *settings)
     scale = pow(10., file->track_gain * .05);
     file->track_peak = peak * scale; /* Predicted peak BEFORE the limiter. */
     if (!settings->no_offset && !settings->fast) {
-        left = trunc(dc[0] * -32768.);
-        right = file->channels == 2 ? trunc(dc[1] * -32768.) : 0.;
+        left = trunc(dc[0] * -32768.) + 0.;
+        right = file->channels == 2 ? trunc(dc[1] * -32768.) + 0. : 0.;
     }
     fprintf(stderr, " %+6.2lf dB | %6.0lf | %5.2lf | %8.0lf | %4.0f  |  %4.0f  | %s\n",
             file->track_gain, peak, scale, file->track_peak, left, right, file->filename);
@@ -296,7 +296,10 @@ int get_gain(const char *filename, double *track_peak, double *track_gain,
     if (settings->lufs && !(opt.rate == 8000 || opt.rate == 11025 || opt.rate == 12000 ||
         opt.rate == 16000 || opt.rate == 22050 || opt.rate == 24000 || opt.rate == 32000 ||
         opt.rate == 44100 || opt.rate == 48000 || opt.rate == 64000 || opt.rate == 88200 ||
-        opt.rate == 96000 || high_rate)) goto done;
+        opt.rate == 96000 || high_rate)) {
+        fprintf(stderr, " Unsupported sample rate for LUFS: %ld Hz.\n", opt.rate);
+        goto done;
+    }
     for (ch = 0; ch < opt.channels; ch++) {
         buffer[ch] = malloc(BUFFER_LEN * sizeof(double));
         if (!buffer[ch]) goto done;
@@ -720,6 +723,15 @@ conversion_done:
 
         if (!settings->std_out) {
 			if (settings->current_output) {
+#ifndef _WIN32
+				/* Retain the input's access permissions, not mkstemp's private mode.
+				 * New files keep the creating user/group and no special mode bits. */
+				if (stat(filename, &fst) || chmod(tempName, fst.st_mode & 0777)) {
+					keep_temp = 1;
+					fprintf(stderr, " Cannot set output permissions; completed file kept at %s.\n", tempName);
+					goto exit;
+				}
+#endif
 				if (!wg_output_publish(tempName, destination)) {
 					keep_temp = 1;
 					fprintf(stderr, " Cannot publish output %s; completed file kept at %s.\n", destination, tempName);

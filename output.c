@@ -1,4 +1,7 @@
-/* Separate-file output paths and atomic no-clobber publication. */
+/* Separate-file output paths and no-clobber publication. */
+#if defined(__linux__) && !defined(_GNU_SOURCE)
+#define _GNU_SOURCE
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,6 +18,12 @@
 #define mkdir_one(path) _mkdir(path)
 #else
 #include <unistd.h>
+#include <fcntl.h>
+#ifdef __APPLE__
+#include <sys/stdio.h>
+#elif defined(__linux__)
+#include <sys/syscall.h>
+#endif
 #define SEP '/'
 #define is_separator(c) ((c) == '/')
 #define canonical(path) realpath((path), NULL)
@@ -35,7 +44,7 @@ char *wg_output_join(const char *directory, const char *name)
 static int directory_exists(const char *path)
 {
 	struct stat st;
-	return !stat(path, &st) && (st.st_mode & S_IFDIR);
+	return !stat(path, &st) && (st.st_mode & S_IFMT) == S_IFDIR;
 }
 
 int wg_output_mkdirs(const char *path)
@@ -103,15 +112,80 @@ int wg_output_inside(const char *directory, const char *path)
 	return result;
 }
 
+#ifndef _WIN32
+static void remove_published_temporary(const char *temporary)
+{
+	if (unlink(temporary)) fprintf(stderr, " Warning: cannot remove temporary file %s.\n", temporary);
+}
+
+/* Last resort for filesystems lacking both exclusive rename and hard links.
+ * O_EXCL still prevents replacement, but readers may see a partial copy.
+ * On failure retain both names: unlinking destination could remove a file
+ * another process put there after deleting our entry. */
+static int publish_copy(const char *temporary, const char *destination)
+{
+	unsigned char buffer[32768];
+	struct stat st;
+	int input = -1, output = -1, created = 0, error;
+	ssize_t count;
+	input = open(temporary, O_RDONLY);
+	if (input < 0) return 0;
+	if (fstat(input, &st)) goto failed;
+	output = open(destination, O_WRONLY | O_CREAT | O_EXCL, 0600);
+	if (output < 0) goto failed;
+	created = 1;
+	for (;;) {
+		size_t offset = 0;
+		count = read(input, buffer, sizeof(buffer));
+		if (count < 0) { if (errno == EINTR) continue; goto failed; }
+		if (!count) break;
+		while (offset < (size_t)count) {
+			ssize_t written = write(output, buffer + offset, (size_t)count - offset);
+			if (written < 0 && errno == EINTR) continue;
+			if (written <= 0) { if (!written) errno = EIO; goto failed; }
+			offset += (size_t)written;
+		}
+	}
+	if (fchmod(output, st.st_mode & 0777)) goto failed;
+	if (close(output)) { output = -1; goto failed; }
+	output = -1;
+	if (close(input)) { input = -1; goto failed; }
+	remove_published_temporary(temporary);
+	return 1;
+failed:
+	error = errno;
+	if (output >= 0) close(output);
+	if (input >= 0) close(input);
+	if (created) fprintf(stderr, " Warning: incomplete output retained at %s.\n", destination);
+	errno = error;
+	return 0;
+}
+#endif
+
 int wg_output_publish(const char *temporary, const char *destination)
 {
 #ifdef _WIN32
 	return MoveFileExA(temporary, destination, MOVEFILE_WRITE_THROUGH) != 0;
 #else
+	/* Prefer exclusive rename: FAT/exFAT can rename but cannot create hard links.
+	 * Never fall back to an ordinary rename, which could overwrite a racer. */
+#if defined(__APPLE__)
+	if (!renamex_np(temporary, destination, RENAME_EXCL)) return 1;
+	if (errno != ENOTSUP && errno != ENOSYS && errno != EINVAL) return 0;
+#elif defined(__linux__) && defined(SYS_renameat2)
+	/* Direct syscall also works with libc versions predating renameat2().
+	 * Linux UAPI defines RENAME_NOREPLACE as bit 0. */
+	if (!syscall(SYS_renameat2, AT_FDCWD, temporary, AT_FDCWD, destination, 1U)) return 1;
+	if (errno != EOPNOTSUPP && errno != ENOSYS && errno != EINVAL) return 0;
+#endif
 	/* Both names are in the output directory. link fails if destination exists,
 	 * including dangling symlinks, without ever replacing its directory entry. */
-	if (link(temporary, destination)) return 0;
-	if (unlink(temporary)) fprintf(stderr, " Warning: cannot remove temporary file %s.\n", temporary);
+	if (link(temporary, destination)) {
+		if (errno == EPERM || errno == ENOTSUP || errno == EOPNOTSUPP || errno == ENOSYS || errno == EMLINK)
+			return publish_copy(temporary, destination);
+		return 0;
+	}
+	remove_published_temporary(temporary);
 	return 1;
 #endif
 }

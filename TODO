@@ -1,4 +1,7 @@
 Feature follow-up (unreleased; base v1.4.5):
+- [FIXED] PR review: preserve normal POSIX permissions on separate outputs,
+    use exclusive rename/link/copy publication across filesystem capabilities,
+    and keep zero DC offset display consistent with v1.4.5 (no negative zero).
 - [IMPLEMENTED] Separate --output / --output-dir with no-clobber publication
     and relative recursive layout; originals are retained.
 - [IMPLEMENTED] DC-corrected true-peak measurement/ceiling and verification

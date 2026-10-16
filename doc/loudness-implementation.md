@@ -157,11 +157,35 @@ are created as needed; an output root inside an input directory is rejected.
 The original remains unchanged and existing destinations, including symlinks,
 are never replaced. Duplicate output basenames in a batch are rejected.
 
-Conversion uses an exclusive temporary in the destination directory. POSIX
-publication uses link/unlink to avoid a check-then-rename overwrite race; a
-filesystem without hard-link support returns an error and retains the completed
-temporary. Windows uses MoveFileExA without replacement flags. Native Windows
-runtime/path validation remains open, as for the existing Windows code.
+Conversion uses an exclusive temporary in the destination directory. On POSIX,
+separate output inherits the input's ordinary permission bits (0777), without
+copying owner/group or special mode bits. This replaces mkstemp's initial 0600
+mode before publication; filesystems without POSIX modes may emulate permissions.
+
+macOS first tries `renamex_np(RENAME_EXCL)` and Linux tries
+`renameat2(RENAME_NOREPLACE)` through its syscall for compatibility with older
+libc versions. If the platform/filesystem lacks the exclusive operation,
+link/unlink provides atomic no-clobber publication where hard links work.
+Neither path uses a check-then-rename sequence that could overwrite a racer.
+
+When hard links are also unavailable (including the tested macOS exFAT image),
+the completed temporary is copied into a destination opened with
+`O_CREAT | O_EXCL`. Existing files and symlinks remain protected. This final
+fallback is not atomically visible: readers can see a partial copy. It requires
+space for both files during copying. On failure it reports and retains the
+incomplete destination and completed temporary, rather than risk unlinking
+another process's replacement of the destination. Successful copying restores
+ordinary permissions, checks close errors, then removes the temporary.
+
+Windows uses MoveFileExA without replacement flags. Native Windows runtime/path
+validation remains open, as for the existing Windows code.
+
+The publication regression test disables hard links and injects unavailable
+native operations, short/interrupted writes and ENOSPC. It checks successful
+fallbacks, permissions, collisions with files/directories/dangling symlinks,
+and recovery files after failure. It passed on macOS arm64 and Linux x86_64
+in a local emulated container. Both separate-output options also passed on
+an actual mounted exFAT image copy, where a hard-link probe returned ENOTSUP.
 
 ## Validation completed
 

@@ -1,4 +1,6 @@
 wavegain
+*.dSYM/
+__pycache__/
 debian/*.debhelper.log
 debian/*.substvars
 debian/files

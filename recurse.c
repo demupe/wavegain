@@ -73,8 +73,7 @@ static int is_dir(const char* path)
 		return -1;
 	}
 
-	/* Is this the proper way to check for a directory? */
-	return (stat_buf.st_mode & S_IFDIR) ? 1 : 0;
+	return (stat_buf.st_mode & S_IFMT) == S_IFDIR;
 }
 
 

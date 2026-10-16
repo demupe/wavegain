@@ -60,6 +60,13 @@ explicit input file; --output-dir supports multiple files and preserves
 relative subdirectories during recursive processing. Its output root must be
 outside the input directories. See the full option reference below.
 
+On POSIX, separate output inherits the input's ordinary access permissions,
+without copying owner/group or special mode bits. Where neither exclusive
+rename nor hard links work (for example, some exFAT/SMB implementations),
+output is copied into an exclusively created destination. That fallback can
+be visible while copying, requires space for both files, and retains an
+incomplete destination plus the completed temporary on failure.
+
 Loudness, peaks and dither
 -------------------------------------------------------------------------------
 ReplayGain is the default. It estimates perceived loudness using weighting
@@ -192,6 +199,8 @@ Behavior changes
 -------------------------------------------------------------------------------
 Version 1.5.0:
 * Separate output paths preserve originals and refuse existing destinations.
+  Ordinary input permissions are retained on POSIX; filesystems without
+  exclusive rename or hard links use an exclusive-copy fallback.
 * LUFS can be selected instead of ReplayGain, with pooled album gating.
 * True-peak ceilings remain active with --noclip and are checked after
   quantization; they can prevent reaching a requested LUFS target.

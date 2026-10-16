@@ -86,7 +86,9 @@ check: $(TARGET) check-docs check-filters check-loudness
 	./test/review_io
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEFS) $(LDFLAGS) -UNDEBUG -o test/feature_dsp test/feature_dsp.c resample.c $(LIBS)
 	./test/feature_dsp
-	$(RM) test/portability test/wave64 test/review_io test/feature_dsp
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEFS) $(LDFLAGS) -UNDEBUG -o test/output_publish test/output_publish.c $(LIBS)
+	./test/output_publish
+	$(RM) test/portability test/wave64 test/review_io test/feature_dsp test/output_publish
 	python3 test/todo_regressions.py
 	python3 test/review_regressions.py
 	python3 test/feature_regressions.py
@@ -110,7 +112,7 @@ check-interop: $(TARGET)
 	python3 test/feature_interop.py
 
 clean:
-	rm -f $(TARGET) test/portability test/wave64 test/review_io test/feature_dsp
+	rm -f $(TARGET) test/portability test/wave64 test/review_io test/feature_dsp test/output_publish
 
 distclean: clean
 

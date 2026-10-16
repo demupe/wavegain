@@ -1,8 +1,10 @@
 """CLI contracts for separate output, LUFS/true peak, high rates and rate dither."""
 import math
+import os
 from pathlib import Path
 import re
 import struct
+import stat
 import subprocess
 import tempfile
 import wave
@@ -35,6 +37,29 @@ with tempfile.TemporaryDirectory(prefix='wavegain-features-') as temp:
     source = folder / 'input.wav'
     fixture(source)
     original = source.read_bytes()
+    # Preserve ordinary input permissions even under a restrictive output umask.
+    if os.name != 'nt':
+        for mask, mode in ((0o022, 0o644), (0o077, 0o640), (0o022, 0o600), (0o077, 0o444)):
+            source.chmod(mode)
+            saved_mask = os.umask(mask)
+            try:
+                destination = folder / f'permission-{mask}-{mode}.wav'
+                run('-y', '--output', destination, source)
+            finally:
+                os.umask(saved_mask)
+            assert stat.S_IMODE(destination.stat().st_mode) == mode
+            assert source.read_bytes() == original
+        source.chmod(0o644)
+    # Sub-LSB offsets must display as integer zero on stderr and in the log.
+    for dc in (0., .00001, -.00001):
+        fixture(source, dc=dc)
+        log = folder / 'dc.log'
+        _, display = run('-f', log, source)
+        for text in (display, log.read_text()):
+            rows = [line.split('|') for line in text.splitlines()
+                    if line.count('|') == 6 and line.rstrip().endswith(str(source))]
+            assert rows and all(row[4].strip() == row[5].strip() == '0' for row in rows), text
+    source.write_bytes(original)
     _, direct = run('--lufs', '--true-peak', '-p', source)
     _, piped = run('--lufs', '--true-peak', '-p', '-', input_data=original)
     assert LUFS.search(direct).group(1) == LUFS.search(piped).group(1)
@@ -52,9 +77,15 @@ with tempfile.TemporaryDirectory(prefix='wavegain-features-') as temp:
     # Recursive output preserves relative subdirectories and never revisits output.
     inputs = folder / 'inputs'; (inputs / 'a' / 'b').mkdir(parents=True)
     fixture(inputs / 'root.wav'); fixture(inputs / 'a' / 'b' / 'deep.wav')
+    if os.name != 'nt':
+        (inputs / 'root.wav').chmod(0o640)
+        (inputs / 'a' / 'b' / 'deep.wav').chmod(0o600)
     outputs = folder / 'outputs'
     run('-y', '-z', '--output-dir', outputs, inputs)
     assert (outputs / 'root.wav').exists() and (outputs / 'a' / 'b' / 'deep.wav').exists()
+    if os.name != 'nt':
+        assert stat.S_IMODE((outputs / 'root.wav').stat().st_mode) == 0o640
+        assert stat.S_IMODE((outputs / 'a' / 'b' / 'deep.wav').stat().st_mode) == 0o600
     run('-y', '-z', '--output-dir', inputs / 'nested-output', inputs, ok=False)
     # Multiple explicit files with a common basename cannot overwrite one another.
     second_dir = folder / 'second'; second_dir.mkdir()
@@ -114,6 +145,9 @@ with tempfile.TemporaryDirectory(prefix='wavegain-features-') as temp:
     run('-y', '--lufs', '--true-peak', '--output', folder / 'silence.wav', source)
     fixture(source, seconds=.1)
     run('--lufs', source, ok=False)
+    fixture(source, rate=50000)
+    _, error = run('--lufs', source, ok=False)
+    assert 'Unsupported sample rate for LUFS: 50000 Hz' in error, error
     for flags in (('--lufs', '--fast'), ('--true-peak', '--undo-gain'),
                   ('--target-lufs', 'nan'), ('--peak-ceiling', 'inf'),
                   ('--dither-profile', 'rate'), ('--output', target),
