@@ -4,7 +4,7 @@
 #include "loudness.h"
 
 /* Some version numbers */
-#define WAVEGAIN_VERSION "1.4.5"
+#define WAVEGAIN_VERSION "1.5.0"
 
 #define BUFFER_LEN  16384
 #define LOG_NAME "WGLog.txt"
