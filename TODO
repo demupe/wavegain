@@ -1,3 +1,14 @@
+Exact mono filter reuse (2026-10-17; base 31cf06a):
+- [IMPLEMENTED] Compute identical mono IIR channel filters once and mirror
+    output histories; disable reuse after stereo until an analysis reset.
+    All-rate mixed-channel state probes, ARM64/x64 gates, UBSan, and 1,260
+    complete audio-file comparisons pass. Mono analysis is ~1.75x faster
+    on Windows ARM64 (O2 and O3/ThinLTO); stereo speed is essentially unchanged.
+    Additional mono RMS reuse did not help and was removed. Measurements and
+    platform limits: doc/mono-optimization.txt, mono-performance-windows.json.
+- [OPEN] Confirm on native MSVC/GCC, macOS/Linux and hardware x64; measure
+    long real-music mono recordings and default release flags on those targets.
+
 Windows directory quality follow-up (2026-10-17; base c1f6d79):
 - [FIXED] Recursive junction/symlink cycles and unintended external directory
     traversal. Cloud reparse points are distinguished from directory redirects;

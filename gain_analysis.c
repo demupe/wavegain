@@ -148,6 +148,15 @@ int              first;
 static Uint32_t  A [STEPS_per_dB * MAX_dB];
 static Uint32_t  B [STEPS_per_dB * MAX_dB];
 
+/* The right filter can mirror the left only until stereo data has been seen.
+ * A later mono call after stereo must retain independent IIR histories. */
+#ifndef WAVEGAIN_MONO_REUSE
+#define WAVEGAIN_MONO_REUSE 1
+#endif
+#if WAVEGAIN_MONO_REUSE
+static int mono_history_clean;
+#endif
+
 // The 88.2 kHz row is from FFmpeg libavfilter/af_replaygain.c (freqinfos).
 // Its former Yule/Butter denominators both had poles outside the unit circle.
 // https://github.com/FFmpeg/FFmpeg/blob/master/libavfilter/af_replaygain.c
@@ -478,6 +487,9 @@ ResetSampleFrequency ( long samplefreq ) {
         default:    return INIT_GAIN_ANALYSIS_ERROR;
     }
 
+#if WAVEGAIN_MONO_REUSE
+	mono_history_clean = 1;
+#endif
     sampleWindow = (int) ceil (samplefreq / RMS_WINDOW_TIME);
 
 #ifdef HAVE_SSE2
@@ -537,6 +549,9 @@ AnalyzeSamples ( const Float_t* left_samples, const Float_t* right_samples, size
     cursamplepos = 0;
     batchsamples = (long)num_samples;
 
+#if WAVEGAIN_MONO_REUSE
+	if (num_channels == 2) mono_history_clean = 0;
+#endif
     switch ( num_channels) {
     case  1: right_samples = left_samples;
     case  2: break;
@@ -565,6 +580,14 @@ AnalyzeSamples ( const Float_t* left_samples, const Float_t* right_samples, size
             curright = right_samples + cursamplepos;
         }
 
+#if WAVEGAIN_MONO_REUSE
+		if (num_channels == 1 && mono_history_clean) {
+			YULE_FILTER(curleft, lstep + totsamp, cursamples, ABYule[freqindex]);
+			memcpy(rstep + totsamp, lstep + totsamp, (size_t)cursamples * sizeof(*rstep));
+			BUTTER_FILTER(lstep + totsamp, lout + totsamp, cursamples, ABButter[freqindex]);
+			memcpy(rout + totsamp, lout + totsamp, (size_t)cursamples * sizeof(*rout));
+		} else
+#endif
 #ifdef WAVEGAIN_HAVE_FILTER_PAIR
         if (num_channels == 2) {
             filterYulePair(curleft, curright, lstep+totsamp, rstep+totsamp,
@@ -787,6 +810,9 @@ GetTitleGain ( void )
         linprebuf[i] = lstepbuf[i] = loutbuf[i] = rinprebuf[i] = rstepbuf[i] = routbuf[i] = 0.f;
 
     totsamp = 0;
+#if WAVEGAIN_MONO_REUSE
+	mono_history_clean = 1;
+#endif
 #ifdef HAVE_SSE2
     lrsum = _mm_setzero_pd();
 #else

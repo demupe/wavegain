@@ -1,4 +1,4 @@
-"""Compile scalar/SIMD private-state probes and compare all output bytes."""
+"""Compare scalar reference and optimized filters, including mono reuse."""
 import argparse
 import hashlib
 import json
@@ -17,7 +17,7 @@ def check_cli(args, folder):
     """Compare the built CLI with a scalar build using identical build flags."""
     scalar = folder / 'wavegain-scalar'
     subprocess.run([*shlex.split(args.cc), *shlex.split(args.cflags),
-                    '-DHAVE_CONFIG_H', '-DWAVEGAIN_FILTER_SIMD=0',
+                    '-DHAVE_CONFIG_H', '-DWAVEGAIN_FILTER_SIMD=0', '-DWAVEGAIN_MONO_REUSE=0',
                     *map(str, sorted(ROOT.glob('*.c'))), '-o', str(scalar),
                     *shlex.split(args.ldflags)], check=True)
     cases = []
@@ -71,7 +71,7 @@ def main():
                          ['-DWAVEGAIN_FILTER_SIMD='+str(int(args.simd == 'on'))])
         if args.expect_simd is not None:
             default_flags.append('-DFILTER_EXPECT_SIMD='+args.expect_simd)
-        for variant, flags in [('scalar',['-DWAVEGAIN_FILTER_SIMD=0']),('default',default_flags)]:
+        for variant, flags in [('scalar',['-DWAVEGAIN_FILTER_SIMD=0', '-DWAVEGAIN_MONO_REUSE=0']),('default',default_flags)]:
             binary = folder / variant
             subprocess.run([*shlex.split(args.cc), *shlex.split(args.cflags), '-DHAVE_CONFIG_H',
                             '-UNDEBUG', *flags, str(ROOT/'test/filter_regressions.c'),
@@ -83,7 +83,7 @@ def main():
             report['runs'][variant] = {'sha256':hashlib.sha256(path.read_bytes()).hexdigest(),
                                       'bytes':path.stat().st_size,'diagnostic':result.stderr}
         report['bitwise_equal'] = report['runs']['scalar']['sha256'] == report['runs']['default']['sha256']
-        if not report['bitwise_equal']: raise AssertionError('SIMD and scalar API state/histograms differ')
+        if not report['bitwise_equal']: raise AssertionError('Optimized and scalar-reference API state/histograms differ')
         macros = subprocess.check_output([*shlex.split(args.cc),*shlex.split(args.cflags),
                                           '-dM','-E','-x','c','-'],input=b'').decode()
         if '__clang__' in macros and '__x86_64__' in macros:
@@ -94,6 +94,22 @@ def main():
             legacy = subprocess.check_output([str(binary)],text=True)
             report['legacy_sse2_diagnostic'] = legacy
             print(legacy,end='')
+            legacy_runs = {}
+            for reuse in (0, 1):
+                binary = folder / f'legacy-sse2-reuse-{reuse}'
+                subprocess.run([*shlex.split(args.cc), *shlex.split(args.cflags), '-DHAVE_CONFIG_H',
+                                '-DHAVE_SSE2', '-fdeclspec', '-UNDEBUG',
+                                f'-DWAVEGAIN_MONO_REUSE={reuse}', str(ROOT/'test/filter_regressions.c'),
+                                '-o', str(binary), *shlex.split(args.ldflags)], check=True)
+                path = folder / f'legacy-sse2-reuse-{reuse}.bin'
+                with path.open('wb') as out:
+                    subprocess.run([str(binary)], stdout=out, stderr=subprocess.PIPE, check=True)
+                legacy_runs[str(reuse)] = {'sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
+                                          'bytes': path.stat().st_size}
+            if legacy_runs['0'] != legacy_runs['1']:
+                raise AssertionError('Legacy SSE2 mono reuse changes API state/histograms')
+            report['legacy_sse2_mono_reuse'] = legacy_runs
+            print('Legacy SSE2 mono reuse preserves every API-state byte.', flush=True)
         if args.reference_ref:
             reports = {}
             for variant in ('prior','current'):

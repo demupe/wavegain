@@ -105,7 +105,11 @@ static void api_case(long rate, int pattern, int channels, int chunk_mode,
         dump(lstepbuf,MAX_ORDER*sizeof(double)); dump(rstepbuf,MAX_ORDER*sizeof(double));
         dump(loutbuf,MAX_ORDER*sizeof(double)); dump(routbuf,MAX_ORDER*sizeof(double));
         dump(&totsamp,sizeof(totsamp));
+#ifdef HAVE_SSE2
+        dump(&lrsum,sizeof(lrsum));
+#else
         dump(&lsum,sizeof(lsum)); dump(&rsum,sizeof(rsum));
+#endif
         pos += n;
     }
     dump(A,sizeof(A));
@@ -175,6 +179,50 @@ static void api(void)
     }
 }
 
+/* A mono optimization must stop reusing a channel after stereo IIR state has
+ * diverged, and resume only when the analysis state is reset. */
+static void mixed_channels(void)
+{
+	const int channel_sequence[] = {1, 2, 1, 1, 2, 1};
+	for (size_t rate = 0; rate < sizeof(rates) / sizeof(*rates); rate++) {
+		assert(InitGainAnalysis(rates[rate]) == INIT_GAIN_ANALYSIS_OK);
+		for (int track = 0; track < 3; track++) {
+			size_t position = 0;
+			if (track == 2) {
+				for (size_t j = 0; j < 17; j++) { left[j] = 1000. + j; right[j] = -3000. - j; }
+				assert(AnalyzeSamples(left, right, 17, 2) == GAIN_ANALYSIS_OK);
+				assert(ResetSampleFrequency(rates[rate]) == INIT_GAIN_ANALYSIS_OK);
+			}
+			for (size_t segment = 0; segment < sizeof(channel_sequence) / sizeof(*channel_sequence); segment++) {
+				int channels = track == 0 ? channel_sequence[segment] : 1;
+				size_t count = segment < 2 ? segment * 16 + 1 : (size_t)sampleWindow + segment - 3;
+				for (size_t j = 0; j < count; j++) {
+					left[j] = test_signal(4, position + j, rates[rate], 0);
+					right[j] = test_signal(4, position + j, rates[rate], 1);
+				}
+				assert(AnalyzeSamples(left, channels == 2 ? right : NULL, count, channels) == GAIN_ANALYSIS_OK);
+				/* Latest live IIR histories, including incomplete windows. */
+				dump(linprebuf, MAX_ORDER * sizeof(double)); dump(rinprebuf, MAX_ORDER * sizeof(double));
+				dump(lstepbuf + totsamp, MAX_ORDER * sizeof(double));
+				dump(rstepbuf + totsamp, MAX_ORDER * sizeof(double));
+				dump(loutbuf + totsamp, MAX_ORDER * sizeof(double));
+				dump(routbuf + totsamp, MAX_ORDER * sizeof(double));
+#ifdef HAVE_SSE2
+				dump(&lrsum, sizeof(lrsum));
+#else
+				dump(&lsum, sizeof(lsum)); dump(&rsum, sizeof(rsum));
+#endif
+				dump(A, sizeof(A));
+				position += count;
+			}
+			{
+				double gain = GetTitleGain(), album = GetAlbumGain();
+				dump(&gain, sizeof(gain)); dump(&album, sizeof(album));
+			}
+		}
+	}
+}
+
 static void errors(void)
 {
     const double invalid[] = {NAN,INFINITY,DBL_MAX};
@@ -200,7 +248,7 @@ int main(void)
 #endif
     kernels(); api();
 #ifndef FILTER_COMPATIBILITY_TEST
-    errors();
+    mixed_channels(); errors();
 #endif
     fprintf(stderr,"Filters: 12 rates, kernel bits, mono/stereo API state/histograms, chunks, album resets and non-finite guards passed (SIMD=%d).\n",
 #ifdef WAVEGAIN_HAVE_FILTER_PAIR

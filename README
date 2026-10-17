@@ -215,6 +215,8 @@ and HTML manual. Do not edit the option reference below directly.
 Behavior changes
 -------------------------------------------------------------------------------
 Unreleased:
+* Mono ReplayGain analysis reuses identical channel-filter results until stereo
+  data is seen, preserving filter state, rounding and generated audio bytes.
 * Windows recursive scans skip discovered directory links, including junctions.
   Explicit linked input roots remain usable. Output-directory checks resolve
   physical locations and reject aliases inside input or unverifiable locations.
