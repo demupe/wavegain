@@ -57,6 +57,18 @@ typedef struct directory
 	const char* full_path;
 } DIRECTORY;
 
+#ifdef _WIN32
+/* Cloud placeholders are reparse points too. Skip directory redirects only,
+ * so recursion cannot follow junctions/symlinks into cycles or other trees. */
+static int directory_is_link(const DIRECTORY *directory)
+{
+	DWORD attributes = directory->find_data.dwFileAttributes;
+	return (attributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) ==
+	       (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT) &&
+	       IsReparseTagNameSurrogate(directory->find_data.dwReserved0);
+}
+#endif
+
 
 /**
  * See if a path refers to a directory.
@@ -457,9 +469,13 @@ static int process_directory(const char* current, const char* path, SETTINGS* se
 
 	strcat(full_path, path);
 
-	if (settings->output_dir && wg_output_inside(path, settings->output_dir)) {
-		fprintf(stderr, " Output directory must be outside input directories.\n");
-		free(old_path); free(full_path); return -1;
+	if (settings->output_dir) {
+		int inside = wg_output_inside(path, settings->output_dir);
+		if (inside) {
+			fprintf(stderr, inside < 0 ? " Cannot verify output directory location.\n" :
+			        " Output directory must be outside input directories.\n");
+			free(old_path); free(full_path); return -1;
+		}
 	}
 	subdir = *current ? wg_output_join(saved_subdir ? saved_subdir : "", path) : strdup("");
 	if (!subdir) { free(old_path); free(full_path); return -1; }
@@ -480,6 +496,9 @@ static int process_directory(const char* current, const char* path, SETTINGS* se
 				if (!strcmp(directory->name, ".") || !strcmp(directory->name, ".."))
 					continue;
 
+#ifdef _WIN32
+				if (directory_is_link(directory)) continue;
+#endif
 				dir = is_dir(directory->name);
 
 				if (dir > 0) {

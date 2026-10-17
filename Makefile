@@ -99,6 +99,7 @@ check: $(TARGET) check-docs check-filters check-loudness
 	python3 test/todo_regressions.py
 	python3 test/review_regressions.py
 	python3 test/feature_regressions.py
+	python3 test/windows_paths.py --binary ./$(TARGET)
 
 docs:
 	python3 tools/generate_help.py

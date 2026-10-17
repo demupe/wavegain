@@ -1,3 +1,12 @@
+Windows directory quality follow-up (2026-10-17; base c1f6d79):
+- [FIXED] Recursive junction/symlink cycles and unintended external directory
+    traversal. Cloud reparse points are distinguished from directory redirects;
+    explicit linked roots remain usable.
+- [FIXED] Output-inside-input checks resolve physical Windows directory paths
+    and reject aliases or failed checks. Real junction/alias and output-byte
+    tests are part of the gate. See doc/windows-directory-quality.txt.
+- [OPEN] Real SMB/cloud-provider, case-sensitive NTFS and native POSIX checks.
+
 Verified PCM optimization follow-up (2026-10-17; base 44db4a7):
 - [IMPLEMENTED] Specialized no-dither/no-limiter integer gain application,
     preserving half-LSB rounding, DC and the legacy symmetric 32-bit clamp.

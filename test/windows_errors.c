@@ -49,6 +49,21 @@ void free_list(FILE_LIST *list) { (void)list; }
 int main(void)
 {
 	int failure;
+	DIRECTORY entry = {0};
+	entry.find_data.dwFileAttributes = FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT;
+	entry.find_data.dwReserved0 = IO_REPARSE_TAG_SYMLINK;
+	assert(directory_is_link(&entry));
+	entry.find_data.dwReserved0 = IO_REPARSE_TAG_MOUNT_POINT;
+	assert(directory_is_link(&entry));
+	/* Cloud placeholders must not disappear from ordinary directory scans. */
+	entry.find_data.dwReserved0 = 0x9000001A; /* IO_REPARSE_TAG_CLOUD */
+	assert(!directory_is_link(&entry));
+	entry.find_data.dwReserved0 = IO_REPARSE_TAG_SYMLINK;
+	entry.find_data.dwFileAttributes = FILE_ATTRIBUTE_REPARSE_POINT;
+	assert(!directory_is_link(&entry)); /* file links retain existing behavior */
+	entry.find_data.dwFileAttributes = FILE_ATTRIBUTE_DIRECTORY;
+	assert(!directory_is_link(&entry)); /* reserved tag is invalid without the flag */
+	assert(wg_output_inside(".", "") == -1);
 	for (failure = 0; failure <= 1; failure++) {
 		FILE *capture = tmpfile();
 		int saved;
@@ -69,7 +84,7 @@ int main(void)
 		assert(strstr(text, failure ? "Scan: path: Windows error 12345." : "Scan: path: literal %s %n %%"));
 		fclose(capture);
 	}
-	puts("Windows diagnostics: original error retained, literal percent signs, formatter failure fallback passed");
+	puts("Windows diagnostics, directory-link/cloud classification and failed containment checks passed");
 	return 0;
 }
 #endif

@@ -67,6 +67,7 @@ def main():
             run([executable])
     for script in ('todo_regressions', 'review_regressions', 'feature_regressions'):
         python(f'test/{script}.py')
+    python('test/windows_paths.py', '--binary', str(binary))
     print('Native Windows check gate passed.', flush=True)
 
 

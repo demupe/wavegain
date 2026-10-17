@@ -1,0 +1,72 @@
+Windows directory-link and output-location review
+Date: 2026-10-17 (Asia/Tokyo)
+Base: c1f6d79; branch perf/verified-pcm-optimization
+
+This review covers filesystem behavior, independently of the PCM/DSP work.
+
+Confirmed before changes
+------------------------
+1. POSIX traversal already skips directory symlinks, but Windows traversal
+   followed junctions and directory symlinks. A junction pointing to its own
+   input directory caused repeated visits until a path failure; a junction
+   leading outside the tree could include unintended audio in an album.
+2. Windows containment used _fullpath, which normalizes spelling but does not
+   resolve junctions. An output directory spelled through an external alias
+   to the input was accepted and received output inside the input tree.
+
+Both regressions were reproduced against the preceding executable using
+temporary audio fixtures. Reproduction used calculation-only processing for
+cycles; separate output for containment retained the original source audio.
+
+Implementation
+--------------
+* Skip name-surrogate directory reparse points encountered while scanning,
+  before stat or descent. This includes directory symlinks and junctions.
+  File links retain their previous behavior. An explicitly selected linked
+  input root is still usable; normal child directories are still traversed.
+* Do not blanket-skip FILE_ATTRIBUTE_REPARSE_POINT: cloud placeholders can
+  have that attribute without redirecting directory names. Unit tests cover
+  the cloud tag classification; real cloud-provider behavior is not claimed.
+* For output containment on Windows, open existing paths for metadata only
+  and resolve their Unicode NT paths with GetFinalPathNameByHandleW.
+  Compare ordinal case-insensitive prefixes with directory boundaries.
+  These resolved paths are private to checking; normal output filenames and
+  the existing no-clobber publication mechanism are unchanged.
+* Return an error when physical locations cannot be checked. Both callers
+  reject output in that case instead of assuming it is outside the input.
+  POSIX retains realpath-based checking with the same error propagation.
+
+Validation
+----------
+test/windows_paths.py covers real junctions: a cycle, an external directory,
+normal nested audio, explicitly linked input roots, input/output aliases in
+both directions, equality, and a valid external linked output. Link names
+include spaces, ampersands and percent signs. Paths are passed as child
+environment data, not interpolated into shell code. Fixture cleanup unlinks
+junction entries before removing the test directory and never traverses their
+targets for deletion. Junctions are created only within that test directory.
+
+Source audio hashes remain unchanged. Valid linked output matches the bytes
+from ordinary processing. test/windows_errors.c additionally covers directory
+tag classification and failed identity lookup. Existing PCM/DSP algorithms,
+coefficients, quantization and sample-count handling are not changed.
+The complete optimized ARM64 gate and the optimized x64 gate (under Windows
+emulation on this host) passed, including the new real-junction checks.
+
+Reproduce on Windows (Python stdlib and Windows PowerShell):
+    python test/windows_paths.py --binary wavegain.exe
+    python tools/check_windows.py --cc aarch64-w64-mingw32-clang --optimized
+The Windows runner and make check include the new test. It skips on POSIX,
+where the existing directory-symlink regression remains in place.
+
+Scope
+-----
+These are directory traversal and preflight location checks. They do not pin
+an entire directory tree against concurrent renames or link retargeting.
+Real SMB/cloud-provider and case-sensitive NTFS configurations remain useful
+follow-ups. Native POSIX validation is pending in this Windows environment.
+
+Primary API references:
+https://learn.microsoft.com/en-us/windows/win32/api/minwinbase/ns-minwinbase-win32_find_dataa
+https://learn.microsoft.com/en-us/windows/win32/fileio/reparse-point-tags
+https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getfinalpathnamebyhandlew

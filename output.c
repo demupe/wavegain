@@ -6,12 +6,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <limits.h>
 #include <sys/stat.h>
 #include "misc.h"
 #include "output.h"
 #ifdef _WIN32
 #include <windows.h>
 #include <direct.h>
+#include <wchar.h>
 #define SEP '\\'
 #define is_separator(c) ((c) == '/' || (c) == '\\')
 #define canonical(path) _fullpath(NULL, (path), 0)
@@ -95,15 +97,51 @@ char *wg_output_absolute(const char *path, int directory)
 	return result;
 }
 
+#ifdef _WIN32
+/* _fullpath normalizes spelling only. Resolve existing directory handles for
+ * containment checks, including junctions, short names and drive aliases.
+ * Keep NT paths private: output filenames still use the original spelling. */
+static wchar_t *directory_identity(const char *path)
+{
+	HANDLE handle = CreateFileA(path, 0, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+	                            NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
+	wchar_t *result = NULL;
+	DWORD capacity, length;
+	if (handle == INVALID_HANDLE_VALUE) return NULL;
+	capacity = GetFinalPathNameByHandleW(handle, NULL, 0, VOLUME_NAME_NT);
+	if (capacity && (size_t)capacity <= SIZE_MAX / sizeof(*result)) {
+		result = malloc((size_t)capacity * sizeof(*result));
+		if (result) {
+			length = GetFinalPathNameByHandleW(handle, result, capacity, VOLUME_NAME_NT);
+			if (!length || length >= capacity) { free(result); result = NULL; }
+		}
+	}
+	CloseHandle(handle);
+	return result;
+}
+#endif
+
 int wg_output_inside(const char *directory, const char *path)
 {
-	char *a = canonical(directory), *b = canonical(path);
-	int result = 0;
-	if (a && b) {
-		size_t n = strlen(a);
 #ifdef _WIN32
-		result = !_strnicmp(a, b, n) && (!b[n] || is_separator(b[n]) || is_separator(a[n - 1]));
+	wchar_t *a = directory_identity(directory), *b = directory_identity(path);
 #else
+	char *a = canonical(directory), *b = canonical(path);
+#endif
+	int result = -1;
+	if (a && b) {
+#ifdef _WIN32
+		size_t n = wcslen(a), m = wcslen(b);
+		if (n && n <= INT_MAX) {
+			result = 0;
+			if (m >= n) {
+				int comparison = CompareStringOrdinal(a, (int)n, b, (int)n, TRUE);
+				if (!comparison) result = -1;
+				else result = comparison == CSTR_EQUAL && (!b[n] || b[n] == L'\\' || a[n - 1] == L'\\');
+			}
+		}
+#else
+		size_t n = strlen(a);
 		result = !strncmp(a, b, n) && (!b[n] || is_separator(b[n]) || is_separator(a[n - 1]));
 #endif
 	}

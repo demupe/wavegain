@@ -742,8 +742,13 @@ int main(int argc, char** argv)
 			settings.output_dir = absolute;
 			for (i = optind; i < argc; i++) {
 				struct stat st;
-				if (!stat(argv[i], &st) && (st.st_mode & S_IFMT) == S_IFDIR && wg_output_inside(argv[i], absolute)) {
-					fprintf(stderr, " Output directory must be outside input directories.\n"); free(absolute); return EXIT_FAILURE;
+				if (!stat(argv[i], &st) && (st.st_mode & S_IFMT) == S_IFDIR) {
+					int inside = wg_output_inside(argv[i], absolute);
+					if (inside) {
+						fprintf(stderr, inside < 0 ? " Cannot verify output directory location.\n" :
+						        " Output directory must be outside input directories.\n");
+						free(absolute); return EXIT_FAILURE;
+					}
 				}
 			}
 		}

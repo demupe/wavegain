@@ -215,6 +215,9 @@ and HTML manual. Do not edit the option reference below directly.
 Behavior changes
 -------------------------------------------------------------------------------
 Unreleased:
+* Windows recursive scans skip discovered directory links, including junctions.
+  Explicit linked input roots remain usable. Output-directory checks resolve
+  physical locations and reject aliases inside input or unverifiable locations.
 * Faster integer PCM input conversion and high-rate analysis FIR history
   traversal preserve the decoded samples and filter accumulation order.
 * Integer gain application without dither/limiting uses a specialized path,
