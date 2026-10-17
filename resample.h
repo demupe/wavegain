@@ -2,7 +2,8 @@
 #define WG_RESAMPLE_H
 /* Streaming 2:1 analysis-only decimator; output audio is never resampled. */
 typedef struct {
-	double taps[127], history[2][127];
+	/* Mirror the ring so each convolution reads one contiguous history. */
+	double taps[127], history[2][254];
 	unsigned long long position;
 	int cursor, channels;
 } WG_DECIMATOR;

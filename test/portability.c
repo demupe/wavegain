@@ -48,6 +48,67 @@ static void check_pcm(int format, unsigned int bytes)
     fclose(out.sndfile);
 }
 
+/* Exhaustive 8/16-bit codes and seeded wider PCM, including sign boundaries.
+ * Compare against an independent arithmetic decoder, with irregular reads and
+ * fast seeks so optimized input must retain byte order and frame positioning. */
+static void check_pcm_decode(void)
+{
+	unsigned char *encoded = malloc(65536 * 2 * 4);
+	double *pcm[2] = {malloc(4097 * sizeof(double)), malloc(4097 * sizeof(double))};
+	int width, channels, big;
+	assert(encoded && pcm[0] && pcm[1]);
+	for (width = 1; width <= 4; width++) for (channels = 1; channels <= 2; channels++)
+	for (big = 0; big <= 1; big++) {
+		wavfile input = {0};
+		uint32_t random = UINT32_C(0x91357);
+		int frame, channel, b, position = 0;
+		input.channels = (short)channels;
+		input.samplesize = (short)(8 * width);
+		input.bigendian = (short)big;
+		input.bounded = 1;
+		input.totalsamples = 65536;
+		input.f = tmpfile();
+		assert(input.f);
+		for (frame = 0; frame < 65536; frame++) for (channel = 0; channel < channels; channel++) {
+			uint32_t value;
+			random = random * UINT32_C(1664525) + UINT32_C(1013904223);
+			value = width <= 2 ? (uint32_t)(frame + channel) : random;
+			if (width > 2 && frame < 8) {
+				const uint32_t edges[] = {0, 1, UINT32_MAX, UINT32_C(0x7fffffff),
+					UINT32_C(0x80000000), UINT32_C(0x7fffff), UINT32_C(0x800000), UINT32_C(0xffffff)};
+				value = edges[frame];
+			}
+			for (b = 0; b < width; b++)
+				encoded[(frame * channels + channel) * width + (big ? width - 1 - b : b)] = (unsigned char)(value >> (8 * b));
+		}
+		assert(fwrite(encoded, width * channels, 65536, input.f) == 65536);
+		rewind(input.f);
+		while (position < 65536) {
+			int count = position % 4097 + 1;
+			long got = wav_read(&input, pcm, count, 0, 0);
+			assert(got == (count < 65536 - position ? count : 65536 - position));
+			for (frame = 0; frame < got; frame++) for (channel = 0; channel < channels; channel++) {
+				const unsigned char *bytes = encoded + ((position + frame) * channels + channel) * width;
+				double value = 0., expected;
+				for (b = 0; b < width; b++) value = value * 256. + bytes[big ? b : width - 1 - b];
+				if (width == 1) expected = (value - 128.) / 128.;
+				else {
+					if (value >= ldexp(1., width * 8 - 1)) value -= ldexp(1., width * 8);
+					expected = value / ldexp(1., width * 8 - 1);
+				}
+				assert(memcmp(&expected, &pcm[channel][frame], sizeof(double)) == 0);
+			}
+			position += (int)got;
+		}
+		assert(wav_read(&input, pcm, 1, 0, 0) == 0);
+		assert(wav_read(&input, pcm, 3, 1, (Int64_t)137 * width * channels) == 3);
+		assert(input.samplesread == 140);
+		fclose(input.f);
+	}
+	free(encoded);
+	free(pcm[0]); free(pcm[1]);
+}
+
 static void check_large_wav(void)
 {
     /* A sparse 3 GiB WAV requires only a few disk blocks. */
@@ -335,6 +396,7 @@ static void check_large_output(int rf64, unsigned int junk)
 
 int main(void)
 {
+    check_pcm_decode();
     check_pcm(WAV_FMT_24BIT, 3);
     check_pcm(WAV_FMT_32BIT, 4);
     check_gain();

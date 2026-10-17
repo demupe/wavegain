@@ -19,19 +19,27 @@ void wg_decimator_init(WG_DECIMATOR *s, int channels)
 	for (i = 0; i < 127; i++) s->taps[i] /= sum;
 }
 
+#if defined(__GNUC__) && !defined(__clang__)
+__attribute__((optimize("no-tree-vectorize")))
+#endif
 int wg_decimator_process(WG_DECIMATOR *s, double **pcm, int frames)
 {
 	int i, ch, out = 0;
 	for (i = 0; i < frames; i++, s->position++) {
-		for (ch = 0; ch < s->channels; ch++) s->history[ch][s->cursor] = pcm[ch][i];
+		for (ch = 0; ch < s->channels; ch++)
+			s->history[ch][s->cursor] = s->history[ch][s->cursor + 127] = pcm[ch][i];
 		if (s->position >= 63 && !((s->position - 63) & 1)) {
 			for (ch = 0; ch < s->channels; ch++) {
 				double value = 0.;
-				int j, index = s->cursor;
-				for (j = 0; j < 127; j++) {
-					value += s->taps[j] * s->history[ch][index];
-					if (--index < 0) index = 126;
-				}
+				const double *history = s->history[ch] + s->cursor + 127;
+				int j;
+				/* Keep the original scalar multiply-add contraction. Vectorizing
+				 * products alone can change rounding on FMA-capable targets. */
+#if defined(__clang__)
+#pragma clang loop vectorize(disable)
+#endif
+				for (j = 0; j < 127; j++)
+					value += s->taps[j] * history[-j];
 				pcm[ch][out] = value;
 			}
 			out++;

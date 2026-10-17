@@ -2,6 +2,7 @@
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include "../resample.h"
@@ -48,8 +49,53 @@ static double dither_high_frequency(long rate, int shape)
 	return difference / energy;
 }
 
+/* Keep the original wrapping convolution as a bitwise oracle. Mirroring must
+ * preserve the accumulation order, startup delay, tail and chunk boundaries. */
+static void check_decimator_bits(void)
+{
+	WG_DECIMATOR state;
+	double history[2][127] = {{0}}, data[2][257], expected[2][257];
+	double *pcm[2] = {data[0], data[1]};
+	uint32_t random = UINT32_C(0x12345);
+	int channels, cursor, position, start, chunk, i, ch, j, out, got;
+	for (channels = 1; channels <= 2; channels++) {
+		wg_decimator_init(&state, channels);
+		memset(history, 0, sizeof(history));
+		cursor = position = 0;
+		for (start = 0; start < 10063; start += chunk) {
+			chunk = start % 257 + 1;
+			if (chunk > 10063 - start) chunk = 10063 - start;
+			out = 0;
+			for (i = 0; i < chunk; i++, position++) {
+				for (ch = 0; ch < channels; ch++) {
+					random = random * UINT32_C(1664525) + UINT32_C(1013904223);
+					data[ch][i] = position >= 10000 ? 0. : ((double)random - 2147483648.) * 0x1p-31;
+					history[ch][cursor] = data[ch][i];
+				}
+				if (position >= 63 && !((position - 63) & 1)) {
+					for (ch = 0; ch < channels; ch++) {
+						double value = 0.;
+						int index = cursor;
+						for (j = 0; j < 127; j++) {
+							value += state.taps[j] * history[ch][index];
+							if (--index < 0) index = 126;
+						}
+						expected[ch][out] = value;
+					}
+					out++;
+				}
+				if (++cursor == 127) cursor = 0;
+			}
+			got = wg_decimator_process(&state, pcm, chunk);
+			assert(got == out);
+			for (ch = 0; ch < channels; ch++) assert(!memcmp(data[ch], expected[ch], out * sizeof(double)));
+		}
+	}
+}
+
 int main(void)
 {
+	check_decimator_bits();
 	double pass = tone_energy(.05, 0), stop = tone_energy(.4, 0);
 	double low, high, flat;
 	assert(pass > 1900. && pass < 2100.);

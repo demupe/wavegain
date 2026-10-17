@@ -1,6 +1,7 @@
 """Behavioral regressions for DC clipping, album peaks, progress and shared help."""
 import json
 import math
+import os
 from pathlib import Path
 import struct
 import subprocess
@@ -124,9 +125,10 @@ with tempfile.TemporaryDirectory(prefix="wavegain-todo-regressions-") as temp:
     capped = float(GAIN.search(run(BINARY, ["-c", "-t", "-g", "12", source]).stderr).group(1))
     uncapped = float(GAIN.search(run(BINARY, ["-c", "-n", "-t", "-g", "12", source]).stderr).group(1))
     assert uncapped > capped
-    # Platform-conditional generated help matches this POSIX build exactly.
+    # Platform-conditional generated help matches the native build exactly.
     definition = json.loads((ROOT / "doc/help.json").read_text())
-    expected = "".join(block["text"] for block in definition["blocks"] if block["condition"] != "_WIN32")
+    expected = "".join(block["text"] for block in definition["blocks"]
+                       if block["condition"] != "_WIN32" or os.name == "nt")
     help_text = run(BINARY, ["-h"]).stdout.split("\n", 1)[1]
     assert help_text == expected
     assert help_text.index("Copyright") > help_text.index("INPUT FILES")

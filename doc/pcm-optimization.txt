@@ -1,0 +1,141 @@
+Verified PCM and high-rate analysis optimization
+Date: 2026-10-17 (Asia/Tokyo)
+Base: 44db4a7 (after v1.5.0); branch perf/verified-pcm-optimization
+
+Production changes
+------------------
+Integer PCM decoding selects width and endian loops once per input block.
+It uses explicit byte loads, unsigned sign-bit transformations, and exact
+power-of-two normalization. It does not rely on alignment, signed shifts,
+host endian, or out-of-range unsigned-to-signed casts. Supported 8/16/24/32-bit
+sample values are unchanged. Header parsing, input length and I/O errors are
+still handled before decoding.
+
+The 176.4/192 kHz ReplayGain analysis decimator mirrors its 127-sample ring.
+The convolution reads contiguous history without a wrap branch for every tap.
+Coefficients, scalar accumulation order, startup delay and tail are unchanged.
+Clang product-loop vectorization is disabled; GCC disables tree vectorization
+for this function. An initial vectorized prototype changed FMA rounding and
+was rejected by the new bitwise oracle. No fast-math, symmetric-tap summation,
+new resampling response or approximate loudness arithmetic is introduced.
+The private state costs 2,032 extra bytes per decimator.
+
+RELEASE_OPT and LTO_FLAGS allow optimized release builds while the default
+remains -O2 without LTO. verified-release now checks both ReplayGain and
+loudness kernels with the actual link flags. For Clang:
+    make verified-release CC=clang RELEASE_OPT=-O3 LTO_FLAGS=-flto=thin
+For GCC, use LTO_FLAGS=-flto instead. Exact output must be checked per toolchain.
+
+Native x64 verification also exposed an existing gain-metadata serializer
+failure: ldexp(value, 1074) did not preserve the smallest binary64 subnormal
+on this Windows runtime. Scaling frexp's normalized fraction with an exponent
+in 1..52 avoids the extreme scale. Positive/negative subnormal boundaries,
+signed zeros, maximum finite values, infinity and NaN are regression-tested.
+Normal gain metadata and output PCM are unchanged by this fix.
+
+Correctness checks
+------------------
+* portability.c: exhaustive 8/16-bit codes; seeded 24/32-bit values and sign
+  boundaries; mono/stereo; both byte orders; irregular reads and EOF/seeks.
+  Decoded doubles match an independent arithmetic oracle bit-for-bit.
+* feature_dsp.c: mirrored FIR matches the original wrapping scalar algorithm
+  bit-for-bit for mono/stereo, irregular blocks and a flushed tail. Existing
+  passband, stopband, duration and dither spectral checks remain enabled.
+* pcm_equivalence.py: 1,050 complete WAV output comparisons against the prior
+  -O2 CLI, versus optimized ARM64: seven rates (8..192 kHz), mono/stereo,
+  four integer widths and float, and 15 option combinations. Includes DC
+  correction on/off, dither, limiter, LUFS, true peak, rate dither, RF64
+  reservation, stored gain and output format conversions. All matched.
+  The synthetic corpus is not an exhaustive proof for every audio file.
+* Existing filter-state, histogram and scalar/SIMD CLI checks are retained.
+  Loudness reference/previous/current kernels are checked at all 14 rates.
+* tools/check_windows.py runs the make check steps using a native compiler
+  and Python, without requiring make. x64 on this ARM64 host uses emulation.
+  The complete gate passed for optimized ARM64 and optimized x64 (emulated).
+  POSIX-only fault injection is explicitly skipped by the existing Windows
+  tests. ARM64 portability and DSP tests also passed with UBSan enabled.
+
+Performance evidence
+--------------------
+Host: Windows 11 ARM64 build 26200, Snapdragon X Plus (8-core) @ 3.30 GHz.
+Compiler: LLVM-MinGW Clang 23.1.1, aarch64-w64-mingw32.
+Synthetic mixed tones/noise; default ReplayGain; -c or -y; no dither/limiter.
+One warm-up then five alternating executions, median wall-clock seconds.
+Input restoration and SHA-256 checks are outside timing. Process startup,
+reads and output writes/replacement are included. Caches are warm; no forced
+disk flush is timed. Real music, cold storage and thermal behavior can differ.
+
+Baseline: unchanged 44db4a7, -O2.
+Candidate: PCM specialization + mirrored FIR, -O3 -flto=thin.
+
+Input (stereo)        Length   Analysis before/after   Apply before/after
+44.1 kHz / 16 bit     180 s    0.3634 / 0.2805 s      0.5683 / 0.3926 s
+96 kHz / 24 bit       180 s    0.7875 / 0.5894 s      1.2617 / 0.8503 s
+192 kHz / 24 bit       30 s    0.7916 / 0.6708 s      0.9425 / 0.7388 s
+
+Apply speedups: 1.45x, 1.48x and 1.28x respectively. Complete outputs match.
+Independent same-flag -O3/ThinLTO comparisons isolate the code changes:
+PCM specialization: 1.23..1.27x analysis, 1.34..1.41x apply (44.1/96 kHz).
+Mirrored FIR: 1.21x analysis, 1.18x apply (192 kHz).
+These ratios are separate experiments, and must not be multiplied together.
+Raw repetitions, executable hashes and output hashes: pcm-performance-windows.json.
+
+Reproduction
+------------
+Build the reference from 44db4a7 in a separate source directory before changes.
+    python tools/check_windows.py --cc aarch64-w64-mingw32-clang --optimized
+    python test/pcm_equivalence.py --reference before.exe --candidate wavegain.exe
+    python tools/benchmark_native.py --reference before.exe --candidate wavegain.exe --output timings.json
+The benchmark generates fixtures by default; --input may be repeated for
+existing WAVs. Source audio is retained. Reference and candidate executables
+must be outside its temporary directory and built before measurement.
+
+Remaining validation/work
+-------------------------
+Native GCC/MSVC and macOS/Linux release gates, hardware x64 throughput,
+independent EBU official-signal conformance, and long sustained real-music
+benchmarks remain useful follow-ups. No CI or new runtime dependency is added.
+FFmpeg interoperability checks were not run: ffmpeg/ffprobe are not installed.
+File-level parallelism requires encapsulating analysis/dither/RNG state and
+defining album/RNG ordering; it is deliberately not mixed into this change.
+
+Continued optimization: integer gain and Windows diagnostics
+-----------------------------------------------------------
+The next change isolates the common no-dither/no-limiter integer gain path.
+Input validation runs first; a separate loop applies exactly the old DC
+subtraction, scaling, fmin/fmax clamp, bit quantizer, shift and output clamp.
+This exposes independent samples to the optimizer without changing the
+stateful dither paths. The legacy 32-bit minimum remains -2147483647, rather
+than silently changing it to INT32_MIN. Float, limiter and dither processing
+continue to use the existing path.
+
+test/gain_kernel.c compares this kernel against dither_output with explicit
+legacy output bounds. It covers every integer width, mono/stereo, DC on/off,
+half-LSB neighbors, signed zeros, subnormals, maximum finite input, overflow
+on scaling, tiny/zero/large scales and NaN/infinity rejection. O3/ThinLTO and
+UBSan executions pass. The differential CLI corpus now contains 1,260 cases
+(18 combinations, adding unclipped manual gain, attenuation and album DC).
+The candidate matches the previous optimized CLI byte-for-byte in all cases.
+The complete ARM64 and emulated x64 gates pass with both new C tests included.
+
+In an isolated O3/ThinLTO comparison with the preceding optimized version,
+44.1 kHz/16-bit stereo apply improved from 0.3904 to 0.3629 s (1.076x), and
+96 kHz/24-bit from 0.8342 to 0.7877 s (1.059x), for the same 180-second inputs.
+Analysis-only timing is a control and is essentially unchanged. The default
+O2 build is measured independently; see gain-performance-windows.json.
+
+A direct planar-to-byte output prototype removed the intermediate native
+interleaving buffer, but apply timings were effectively unchanged (1.006x
+and 0.996x). It was removed along with its new API; its measurements remain
+in gain-performance-windows.json as a rejected experiment.
+
+Smaller portability/reliability fixes in the same follow-up:
+* Channel-stride decoding indexes only valid sample addresses instead of
+  forming a pointer past one-past-end after the final right-channel sample.
+* getopt prototypes avoid MinGW's __argc/__argv macros when stdlib.h is
+  included first. Debug compile warnings from these collisions disappear.
+* Windows directory errors save GetLastError before printing, print OS text
+  through a fixed format, and use a numeric fallback if FormatMessageA fails.
+  test/windows_errors.c injects a printing-induced error change, literal
+  percent sequences (%s/%n/%%), and system-message allocation/lookup failure.
+  Existing non-UTF-8 license text is retained unchanged as required.

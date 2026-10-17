@@ -179,7 +179,7 @@ Tests and development
     make check              # run the regression gate (Python 3 required)
     make check-sanitize     # rebuild and test with ASan/UBSan
     make check-interop      # compare with FFmpeg (ffmpeg/ffprobe required)
-    make verified-release   # release build with ReplayGain verification
+    make verified-release   # release build with ReplayGain/loudness verification
     make check-loudness     # compare loudness kernels with native reference
 
 Tests cover PCM/float conversion, gain/undo, metadata, malformed files, sparse
@@ -188,8 +188,25 @@ resampling and dither signal properties. Open validation work is listed in TODO.
 
 verified-release compares ReplayGain filter state and complete conversion
 output with a scalar build using the same compiler and flags, and removes
-the binary on mismatch. VERIFY_SIMD=auto accepts either backend (default);
+the binary on mismatch. It also verifies loudness kernels against the native
+reference. VERIFY_SIMD=auto accepts either backend (default);
 VERIFY_SIMD=1 requires paired stereo SIMD and VERIFY_SIMD=0 requires scalar.
+
+Release optimization can be selected without editing the Makefile. For Clang:
+    make verified-release CC=clang RELEASE_OPT=-O3 LTO_FLAGS=-flto=thin
+GCC can use LTO_FLAGS=-flto. Ordinary release builds retain -O2 with no LTO.
+Do not enable fast-math: finite checks and exact filter arithmetic are required.
+
+On native Windows, run the same regression gate without a POSIX make install:
+    python tools/check_windows.py --cc aarch64-w64-mingw32-clang --optimized
+Omit --optimized for -O2, or select x86_64-w64-mingw32-clang for x64.
+The x64 tests on an ARM64 host execute through Windows emulation.
+
+For release-to-release byte comparisons and repeatable performance measurements:
+    python test/pcm_equivalence.py --reference ./wavegain-before --candidate ./wavegain
+    python tools/benchmark_native.py --reference ./wavegain-before --candidate ./wavegain --output timings.json
+On Windows, use explicit .exe paths. These checks retain input files; benchmark
+times use warm OS caches. See doc/pcm-optimization.txt for evidence and limits.
 
 CLI help and manuals come from doc/help.json. After editing it, run make docs.
 make check-docs verifies the generated README help, help_generated.h, man page
@@ -197,6 +214,15 @@ and HTML manual. Do not edit the option reference below directly.
 
 Behavior changes
 -------------------------------------------------------------------------------
+Unreleased:
+* Faster integer PCM input conversion and high-rate analysis FIR history
+  traversal preserve the decoded samples and filter accumulation order.
+* Integer gain application without dither/limiting uses a specialized path,
+  preserving the legacy quantizer, DC correction and saturation boundaries.
+* Tiny binary64 values in gain metadata serialize correctly on Windows x64.
+* Windows directory diagnostics retain the original error code and safely
+  handle literal percent signs and unavailable system messages.
+
 Version 1.5.0:
 * Separate output paths preserve originals and refuse existing destinations.
   Ordinary input permissions are retained on POSIX; filesystems without

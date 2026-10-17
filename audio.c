@@ -178,7 +178,9 @@ static void write_d64(unsigned char *out, double value, int big)
 	else if (value) {
 		fraction = frexp(value, &exponent);
 		if (exponent < -1021)
-			bits |= (uint64_t)ldexp(value, 1074);
+			/* Scale the normalized fraction: some Windows runtimes overflow
+			 * ldexp's intermediate scale factor for an exponent of 1074. */
+			bits |= (uint64_t)ldexp(fraction, exponent + 1074);
 		else {
 			bits |= (uint64_t)(exponent + 1022) << 52;
 			bits |= (uint64_t)((fraction * 2. - 1.) * 4503599627370496.);
@@ -656,22 +658,44 @@ long wav_read(void *in, double **buffer, int samples, int fast, Int64_t chunk)
 		
 	if (ferror(f->f) || bytes_read % (sampbyte * f->channels) ||
 	    (!realsamples && f->bounded && f->samplesread < f->totalsamples)) return -1;
-	for (i = 0; i < realsamples; i++) {
-		for (j = 0; j < f->channels; j++) {
-			const unsigned char *p = (const unsigned char *)buf + (i * f->channels + j) * sampbyte;
-			uint32_t value = 0;
-			int b;
-			if (sampbyte == 1) {
-				buffer[j][i] = ((int)*p - 128) / 128.;
-				continue;
-			}
-			for (b = 0; b < sampbyte; b++)
-				value = (value << 8) | p[f->bigendian ? b : sampbyte - b - 1];
-			buffer[j][i] = ((value & (UINT32_C(1) << (f->samplesize - 1))) ?
-				(double)value - ldexp(1., f->samplesize) : (double)value) /
-				ldexp(1., f->samplesize - 1);
-		}
+	/* Select the byte order/width once per block, not once per sample.
+	 * XOR the sign bit before converting to double: this avoids unaligned
+	 * loads, signed shifts and out-of-range unsigned-to-signed conversions.
+	 * All integer values and power-of-two scaling are exact in binary64. */
+#define DECODE_PCM(read, sign, scale) \
+	do { \
+		for (j = 0; j < f->channels; j++) { \
+			const unsigned char *base = (const unsigned char *)buf + j * sampbyte; \
+			for (i = 0; i < realsamples; i++) { \
+				const unsigned char *p = base + (size_t)i * sampbyte * f->channels; \
+				buffer[j][i] = ((double)((read) ^ (sign)) - (double)(sign)) * (scale); \
+			} \
+		} \
+	} while (0)
+	switch (sampbyte) {
+	case 1:
+		for (j = 0; j < f->channels; j++)
+			for (i = 0; i < realsamples; i++)
+				buffer[j][i] = ((const unsigned char *)buf)[i * f->channels + j] / 128. - 1.;
+		break;
+	case 2:
+		if (f->bigendian) DECODE_PCM(READ_U16_BE(p), UINT32_C(0x8000), 0x1p-15);
+		else DECODE_PCM(READ_U16_LE(p), UINT32_C(0x8000), 0x1p-15);
+		break;
+	case 3:
+		if (f->bigendian)
+			DECODE_PCM(((uint32_t)p[0] << 16) | ((uint32_t)p[1] << 8) | p[2],
+			           UINT32_C(0x800000), 0x1p-23);
+		else
+			DECODE_PCM(((uint32_t)p[2] << 16) | ((uint32_t)p[1] << 8) | p[0],
+			           UINT32_C(0x800000), 0x1p-23);
+		break;
+	case 4:
+		if (f->bigendian) DECODE_PCM(READ_U32_BE(p), UINT32_C(0x80000000), 0x1p-31);
+		else DECODE_PCM(READ_U32_LE(p), UINT32_C(0x80000000), 0x1p-31);
+		break;
 	}
+#undef DECODE_PCM
 
 	return realsamples;
 }

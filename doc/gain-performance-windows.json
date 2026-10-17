@@ -1,0 +1,445 @@
+{
+  "date": "2026-10-17",
+  "compiler": "LLVM-MinGW Clang 23.1.1, aarch64-w64-mingw32",
+  "comparison": "Incremental gain specialization after the preceding PCM/FIR optimizations",
+  "common_flags": "-std=gnu17 -D_FILE_OFFSET_BITS=64 -DHAVE_CONFIG_H -D_FORTIFY_SOURCE=2",
+  "accepted_O3_ThinLTO": {
+    "platform": "Windows-11-10.0.26200-SP0",
+    "processor": "ARMv8 (64-bit) Family 8 Model 1 Revision 201, Qualcomm Technologies Inc",
+    "method": "One warm-up, alternating order, median wall seconds; restoration/hashing outside timer; warm OS cache",
+    "binaries": {
+      "reference": {
+        "path": "before-output-arm64.exe",
+        "sha256": "603142a610fde89d4f09402e4460a83d0fa0c51a9f0559b426fc5696918c3524"
+      },
+      "candidate": {
+        "path": "plain-gain-arm64.exe",
+        "sha256": "743be3eb897f95df82d90881e723b986c1501004dc836cf1f2638476c08df705"
+      }
+    },
+    "runs": 5,
+    "cases": [
+      {
+        "input": "44100-2ch-16bit.wav",
+        "rate": 44100,
+        "channels": 2,
+        "bits": 16,
+        "frames": 7938000,
+        "mode": "analyze",
+        "times": {
+          "reference": [
+            0.2791312999997899,
+            0.2801501999983884,
+            0.2785027000008995,
+            0.2789907000005769,
+            0.27617930000087654
+          ],
+          "candidate": [
+            0.2792026999995869,
+            0.2770985000006476,
+            0.2792232000010699,
+            0.28130090000013297,
+            0.2848187000017788
+          ]
+        },
+        "medians": {
+          "reference": 0.2789907000005769,
+          "candidate": 0.2792232000010699
+        },
+        "speedup": 0.9991673327986639,
+        "output_sha256": {}
+      },
+      {
+        "input": "44100-2ch-16bit.wav",
+        "rate": 44100,
+        "channels": 2,
+        "bits": 16,
+        "frames": 7938000,
+        "mode": "apply",
+        "times": {
+          "reference": [
+            0.3983905999994022,
+            0.38895600000068953,
+            0.3870169000001624,
+            0.3942788999993354,
+            0.390438999998878
+          ],
+          "candidate": [
+            0.36291309999978694,
+            0.36065159999998286,
+            0.36567330000070797,
+            0.36786790000041947,
+            0.3618879999994533
+          ]
+        },
+        "medians": {
+          "reference": 0.390438999998878,
+          "candidate": 0.36291309999978694
+        },
+        "speedup": 1.075847082949354,
+        "output_sha256": {
+          "reference": "0f03b9715a499aa80b5bc9c125aa6061240ea9f1b00d99a377ea558b7e75f4b3",
+          "candidate": "0f03b9715a499aa80b5bc9c125aa6061240ea9f1b00d99a377ea558b7e75f4b3"
+        }
+      },
+      {
+        "input": "96000-2ch-24bit.wav",
+        "rate": 96000,
+        "channels": 2,
+        "bits": 24,
+        "frames": 17280000,
+        "mode": "analyze",
+        "times": {
+          "reference": [
+            0.6052433000004385,
+            0.5895296999988204,
+            0.5845958999998402,
+            0.5865874999999505,
+            0.5891777000015281
+          ],
+          "candidate": [
+            0.593154100000902,
+            0.5952297000003455,
+            0.5879910000003292,
+            0.5917686000011599,
+            0.6013226999984909
+          ]
+        },
+        "medians": {
+          "reference": 0.5891777000015281,
+          "candidate": 0.593154100000902
+        },
+        "speedup": 0.9932961771664939,
+        "output_sha256": {}
+      },
+      {
+        "input": "96000-2ch-24bit.wav",
+        "rate": 96000,
+        "channels": 2,
+        "bits": 24,
+        "frames": 17280000,
+        "mode": "apply",
+        "times": {
+          "reference": [
+            0.8338653000009799,
+            0.8595857000000251,
+            0.8341521000002103,
+            0.8340346000004502,
+            0.8644980999997642
+          ],
+          "candidate": [
+            0.770618900000045,
+            0.8046780000004219,
+            0.7789978999990126,
+            0.8463663999991695,
+            0.7876534999995783
+          ]
+        },
+        "medians": {
+          "reference": 0.8341521000002103,
+          "candidate": 0.7876534999995783
+        },
+        "speedup": 1.059034334260759,
+        "output_sha256": {
+          "reference": "a3af606f4a1443532c51b991dcbaa6891f2971049f196fb14068f09c99ccf2f3",
+          "candidate": "a3af606f4a1443532c51b991dcbaa6891f2971049f196fb14068f09c99ccf2f3"
+        }
+      }
+    ]
+  },
+  "accepted_O2": {
+    "platform": "Windows-11-10.0.26200-SP0",
+    "processor": "ARMv8 (64-bit) Family 8 Model 1 Revision 201, Qualcomm Technologies Inc",
+    "method": "One warm-up, alternating order, median wall seconds; restoration/hashing outside timer; warm OS cache",
+    "binaries": {
+      "reference": {
+        "path": "gain-O2-before.exe",
+        "sha256": "6102a8e692c4e1c7e5654cfb99ce093c9b0875b21fbeac80f17c2cdc37ecda24"
+      },
+      "candidate": {
+        "path": "gain-O2-after.exe",
+        "sha256": "77e8a67e22faabd1329326463adee771dbf055ab22f7d021f5e58f8566e9cadb"
+      }
+    },
+    "runs": 5,
+    "cases": [
+      {
+        "input": "44100-2ch-16bit.wav",
+        "rate": 44100,
+        "channels": 2,
+        "bits": 16,
+        "frames": 7938000,
+        "mode": "analyze",
+        "times": {
+          "reference": [
+            0.28510780000033265,
+            0.2932593999994424,
+            0.2819820000004256,
+            0.2829751999997825,
+            0.27905740000096557
+          ],
+          "candidate": [
+            0.30297170000085316,
+            0.28327919999901496,
+            0.2807609000010416,
+            0.2805948000004719,
+            0.28279900000052294
+          ]
+        },
+        "medians": {
+          "reference": 0.2829751999997825,
+          "candidate": 0.28279900000052294
+        },
+        "speedup": 1.0006230573632129,
+        "output_sha256": {}
+      },
+      {
+        "input": "44100-2ch-16bit.wav",
+        "rate": 44100,
+        "channels": 2,
+        "bits": 16,
+        "frames": 7938000,
+        "mode": "apply",
+        "times": {
+          "reference": [
+            0.4082589999998163,
+            0.3988690999995015,
+            0.417100799999389,
+            0.4072513999999501,
+            0.40292780000163475
+          ],
+          "candidate": [
+            0.3735108000000764,
+            0.3699664000014309,
+            0.3741788999996061,
+            0.390093899999556,
+            0.3713671000004979
+          ]
+        },
+        "medians": {
+          "reference": 0.4072513999999501,
+          "candidate": 0.3735108000000764
+        },
+        "speedup": 1.0903336663889418,
+        "output_sha256": {
+          "reference": "0f03b9715a499aa80b5bc9c125aa6061240ea9f1b00d99a377ea558b7e75f4b3",
+          "candidate": "0f03b9715a499aa80b5bc9c125aa6061240ea9f1b00d99a377ea558b7e75f4b3"
+        }
+      },
+      {
+        "input": "96000-2ch-24bit.wav",
+        "rate": 96000,
+        "channels": 2,
+        "bits": 24,
+        "frames": 17280000,
+        "mode": "analyze",
+        "times": {
+          "reference": [
+            0.6297089999989112,
+            0.5995239000003494,
+            0.6068273000000772,
+            0.5966114999991987,
+            0.5901888000007602
+          ],
+          "candidate": [
+            0.600358600000618,
+            0.5990961999996216,
+            0.5950637999994797,
+            0.5989887999985513,
+            0.5958256000012625
+          ]
+        },
+        "medians": {
+          "reference": 0.5995239000003494,
+          "candidate": 0.5989887999985513
+        },
+        "speedup": 1.0008933389101757,
+        "output_sha256": {}
+      },
+      {
+        "input": "96000-2ch-24bit.wav",
+        "rate": 96000,
+        "channels": 2,
+        "bits": 24,
+        "frames": 17280000,
+        "mode": "apply",
+        "times": {
+          "reference": [
+            0.8701479000010295,
+            0.8838264000005438,
+            0.8585411999993084,
+            0.8697425000009389,
+            0.8480271000007633
+          ],
+          "candidate": [
+            0.7816141999992396,
+            0.8183563000002323,
+            0.789869499998531,
+            0.7789443999990908,
+            0.7854613999988942
+          ]
+        },
+        "medians": {
+          "reference": 0.8697425000009389,
+          "candidate": 0.7854613999988942
+        },
+        "speedup": 1.1073013899883093,
+        "output_sha256": {
+          "reference": "a3af606f4a1443532c51b991dcbaa6891f2971049f196fb14068f09c99ccf2f3",
+          "candidate": "a3af606f4a1443532c51b991dcbaa6891f2971049f196fb14068f09c99ccf2f3"
+        }
+      }
+    ]
+  },
+  "rejected_direct_planar_output_O3_ThinLTO": {
+    "platform": "Windows-11-10.0.26200-SP0",
+    "processor": "ARMv8 (64-bit) Family 8 Model 1 Revision 201, Qualcomm Technologies Inc",
+    "method": "One warm-up, alternating order, median wall seconds; restoration/hashing outside timer; warm OS cache",
+    "binaries": {
+      "reference": {
+        "path": "before-output-arm64.exe",
+        "sha256": "603142a610fde89d4f09402e4460a83d0fa0c51a9f0559b426fc5696918c3524"
+      },
+      "candidate": {
+        "path": "direct-output-arm64.exe",
+        "sha256": "fc7bebefa9f3271884f4a3647809c342f8950df86ae623f8d5b6ca92c4892ca8"
+      }
+    },
+    "runs": 5,
+    "cases": [
+      {
+        "input": "44100-2ch-16bit.wav",
+        "rate": 44100,
+        "channels": 2,
+        "bits": 16,
+        "frames": 7938000,
+        "mode": "analyze",
+        "times": {
+          "reference": [
+            0.2774191000007704,
+            0.2828105999997206,
+            0.2775352999997267,
+            0.2818878999987646,
+            0.2865595999992365
+          ],
+          "candidate": [
+            0.2787142999986827,
+            0.2785782000009931,
+            0.28351699999984703,
+            0.27813359999890963,
+            0.2879962000006344
+          ]
+        },
+        "medians": {
+          "reference": 0.2818878999987646,
+          "candidate": 0.2787142999986827
+        },
+        "speedup": 1.0113865704059566,
+        "output_sha256": {}
+      },
+      {
+        "input": "44100-2ch-16bit.wav",
+        "rate": 44100,
+        "channels": 2,
+        "bits": 16,
+        "frames": 7938000,
+        "mode": "apply",
+        "times": {
+          "reference": [
+            0.3900155999999697,
+            0.3884907000010571,
+            0.3924899000012374,
+            0.3872483999984979,
+            0.3916609999996581
+          ],
+          "candidate": [
+            0.3875468999995064,
+            0.38723789999858127,
+            0.39063440000063565,
+            0.38708889999907115,
+            0.40062789999865345
+          ]
+        },
+        "medians": {
+          "reference": 0.3900155999999697,
+          "candidate": 0.3875468999995064
+        },
+        "speedup": 1.0063700677272,
+        "output_sha256": {
+          "reference": "0f03b9715a499aa80b5bc9c125aa6061240ea9f1b00d99a377ea558b7e75f4b3",
+          "candidate": "0f03b9715a499aa80b5bc9c125aa6061240ea9f1b00d99a377ea558b7e75f4b3"
+        }
+      },
+      {
+        "input": "96000-2ch-24bit.wav",
+        "rate": 96000,
+        "channels": 2,
+        "bits": 24,
+        "frames": 17280000,
+        "mode": "analyze",
+        "times": {
+          "reference": [
+            0.6021624000004522,
+            0.5870111000003817,
+            0.6079183000001649,
+            0.5925801999983378,
+            0.5906076999999641
+          ],
+          "candidate": [
+            0.59666819999984,
+            0.5862701999994897,
+            0.594328700000915,
+            0.6068935000002966,
+            0.5899310000004334
+          ]
+        },
+        "medians": {
+          "reference": 0.5925801999983378,
+          "candidate": 0.594328700000915
+        },
+        "speedup": 0.9970580252937903,
+        "output_sha256": {}
+      },
+      {
+        "input": "96000-2ch-24bit.wav",
+        "rate": 96000,
+        "channels": 2,
+        "bits": 24,
+        "frames": 17280000,
+        "mode": "apply",
+        "times": {
+          "reference": [
+            0.8193468000008579,
+            0.8274044999998296,
+            0.8276115000007849,
+            0.8491507999988244,
+            0.8916934999997466
+          ],
+          "candidate": [
+            0.8488426000003528,
+            0.8296872999999323,
+            0.830866899999819,
+            0.8270015999987663,
+            0.8327779000010196
+          ]
+        },
+        "medians": {
+          "reference": 0.8276115000007849,
+          "candidate": 0.830866899999819
+        },
+        "speedup": 0.996081923592052,
+        "output_sha256": {
+          "reference": "a3af606f4a1443532c51b991dcbaa6891f2971049f196fb14068f09c99ccf2f3",
+          "candidate": "a3af606f4a1443532c51b991dcbaa6891f2971049f196fb14068f09c99ccf2f3"
+        }
+      }
+    ]
+  },
+  "final_complete_output_equality_cases": 1260,
+  "gates": {
+    "arm64_optimized": "passed",
+    "x64_optimized_under_emulation": "passed",
+    "arm64_quantizer_ubsan": "passed",
+    "arm64_pcm_ubsan": "passed"
+  }
+}

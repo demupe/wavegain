@@ -163,7 +163,7 @@ Windowsでは、MSYS2のMINGW64シェルでMinGW-w64 GCCと同じMakefileを使�
 | `make check` | 回帰テスト一式を実行（Python 3が必要） |
 | `make check-sanitize` | ASan/UBSanで再ビルドし、テストを実行 |
 | `make check-interop` | FFmpegとの比較（ffmpeg/ffprobeが必要） |
-| `make verified-release` | ReplayGainの一致検証付きリリースビルド |
+| `make verified-release` | ReplayGain・ラウドネスの一致検証付きリリースビルド |
 | `make check-loudness` | ラウドネス測定処理をネイティブの参照実装と比較 |
 
 PCM・浮動小数点変換、ゲインと取り消し、メタデータ、不正ファイル、5 GiBのWave64を含むスパース大容量ファイル、出力パス、ラウドネス、True Peak上限、リサンプリング、ディザの信号特性を検証します。未完了の検証項目は[TODO](TODO)に記録しています。
@@ -172,7 +172,20 @@ PCM・浮動小数点変換、ゲインと取り消し、メタデータ、不�
 
 CLIヘルプとマニュアルの正本は[doc/help.json](doc/help.json)です。変更後は`make docs`で生成し、`make check-docs`で英語READMEのヘルプ、`help_generated.h`、manページ、HTMLマニュアルの同期を検査します。日本語READMEは手動翻訳のため、オプションや挙動の変更時にはこちらも更新してください。
 
+Clangでは`make verified-release CC=clang RELEASE_OPT=-O3 LTO_FLAGS=-flto=thin`で最適化ビルドを検証できます。GCCのLTOは`LTO_FLAGS=-flto`を指定します。通常ビルドは従来どおり`-O2`です。`verified-release`はラウドネス処理と参照実装の一致も検証します。非有限値の検査と演算の正確性を保つため、fast-mathは使用しないでください。
+
+Windowsでは`python tools/check_windows.py --cc aarch64-w64-mingw32-clang --optimized`でネイティブの回帰試験を実行できます。`--optimized`を省略すると`-O2`、コンパイラーを`x86_64-w64-mingw32-clang`に変えるとx64向けになります。ARM64上でのx64試験はWindowsのエミュレーションを利用します。
+
+旧版との出力比較には`test/pcm_equivalence.py`、速度と出力一致の同時測定には`tools/benchmark_native.py`を使用できます。どちらも`--reference`と`--candidate`で実行ファイルを指定し、ベンチマークでは`--output timings.json`も指定します。Windowsでは`.exe`を含むパスを指定してください。測定条件と結果は[doc/pcm-optimization.txt](doc/pcm-optimization.txt)に記載しています。
+
 ## 動作の変更点
+
+### 未リリース
+
+- 整数PCM入力と高サンプルレート用FIRの履歴参照を高速化しました。復号後のサンプル値とフィルターの加算順序を維持します。
+- ディザ・リミッターなしの整数ゲイン適用を専用化しました。従来の量子化、DC補正、飽和境界を維持します。
+- Windows x64で、gainメタデータ内の極小のbinary64値が正しく書き込まれるようにしました。
+- Windowsのディレクトリエラー表示で元のエラー番号を保持し、メッセージ中の`%`やシステムメッセージ取得失敗を安全に処理します。
 
 ### バージョン1.5.0
 

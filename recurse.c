@@ -206,21 +206,22 @@ static int match(const char* pattern, const char* text)
  */
 static void file_error_win(const char *message, ...)
 {
-	char *error;
+	char *error = NULL;
+	DWORD code = GetLastError();
 	va_list args;
 
 	va_start(args, message);
 	vfprintf(stderr, message, args);
 	va_end(args);
 
-	FormatMessage(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM |
-		FORMAT_MESSAGE_IGNORE_INSERTS, NULL, GetLastError(),
-		MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPTSTR) &error, 0,
-		NULL);
-
-	fprintf(stderr, error);
-	fprintf(stderr, "\n");
-	LocalFree(error);
+	if (FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM |
+		FORMAT_MESSAGE_IGNORE_INSERTS, NULL, code,
+		MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPSTR)&error, 0, NULL)) {
+		fprintf(stderr, "%s\n", error);
+		LocalFree(error);
+	} else {
+		fprintf(stderr, "Windows error %lu.\n", (unsigned long)code);
+	}
 }
 
 

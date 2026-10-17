@@ -1,3 +1,24 @@
+Verified PCM optimization follow-up (2026-10-17; base 44db4a7):
+- [IMPLEMENTED] Specialized no-dither/no-limiter integer gain application,
+    preserving half-LSB rounding, DC and the legacy symmetric 32-bit clamp.
+    Kernel oracles, UBSan and 1,260 prior/current output comparisons pass.
+    Direct planar output packing was measured and rejected (no speed gain).
+- [FIXED] Windows directory diagnostics preserve GetLastError before printing,
+    treat system messages as data, and fall back safely if formatting fails.
+    Fault injection covers these cases. Avoid MinGW argc/argv macro collisions
+    in getopt declarations and one-past-end channel-stride pointer formation.
+- [IMPLEMENTED] Exact integer PCM decode specialization and mirrored high-rate
+    FIR history with bitwise oracles; configurable release optimization/LTO;
+    ReplayGain and loudness verification use the actual linker flags.
+    See doc/pcm-optimization.txt and doc/pcm-performance-windows.json.
+- [IMPLEMENTED] Native Windows gate runner, prior/current complete output
+    comparison (1,050 conditions), and portable warm-cache benchmark tooling.
+- [FIXED] Windows x64 binary64 subnormal gain-metadata serialization; expanded
+    positive/negative subnormal and signed-zero regression coverage.
+- [OPEN] Native GCC/MSVC and macOS/Linux verification of these changes;
+    official EBU signal conformance and sustained real-music measurements.
+    File-level parallelism still requires the state encapsulation listed below.
+
 Feature follow-up (unreleased; base v1.4.5):
 - [FIXED] PR review: preserve normal POSIX permissions on separate outputs,
     use exclusive rename/link/copy publication across filesystem capabilities,

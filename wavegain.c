@@ -131,6 +131,36 @@ Int64_t dither_output(int dithering, int shapingtype, int i, double Sum, int k, 
 	return (val);
 }
 
+/* The common integer path has no dither history or limiter dependencies.
+ * Validate input first so the independent quantization loop can vectorize,
+ * while retaining the legacy scaling, clamp and quantizer arithmetic. */
+static int apply_plain_gain(double **pcm, int channels, int frames,
+                            const double *dc, double scale, int bits)
+{
+	int ch, i, shift = 32 - bits;
+	Int64_t maximum = (INT64_C(1) << (bits - 1)) - 1;
+	/* Preserve the legacy symmetric 32-bit saturation at +/-2147483647. */
+	Int64_t minimum = bits == 32 ? -maximum : -(INT64_C(1) << (bits - 1));
+	for (ch = 0; ch < channels; ch++)
+		for (i = 0; i < frames; i++)
+			if (!isfinite(pcm[ch][i])) return 0;
+	for (ch = 0; ch < channels; ch++) {
+		for (i = 0; i < frames; i++) {
+			double value = pcm[ch][i], sum;
+			Int64_t quantized;
+			if (dc) value -= dc[ch];
+			value *= scale;
+			sum = value * 2147483647.f;
+			sum = fmax(-2147483648., fmin(2147483648., sum));
+			quantized = ROUND64(sum) >> shift;
+			if (quantized > maximum) quantized = maximum;
+			else if (quantized < minimum) quantized = minimum;
+			pcm[ch][i] = (double)quantized;
+		}
+	}
+	return 1;
+}
+
 /* Get the gain and peak value for a file. Runs in audiophile mode if 
  * audiophile is true.
  *
@@ -638,7 +668,16 @@ int write_gains(const char *filename, double radio_gain, double audiophile_gain,
 				 * (host order) (unless float output)
 				 * and apply ReplayGain scaling, etc. 
 				 */
-				for(k = 0; k < wg_opts->channels; k++) {
+				if (!settings->dithering && !settings->dither_profile &&
+				    !settings->limiter && wg_opts->format != WAV_FMT_FLOAT) {
+					const double *dc = settings->no_offset ? NULL :
+						settings->adc ? album_dc_offset : dc_offset;
+					if (!apply_plain_gain(pcm, wg_opts->channels, bout, dc, scale,
+					                      wg_opts->samplesize)) {
+						output_failed = 1;
+						goto conversion_done;
+					}
+				} else for(k = 0; k < wg_opts->channels; k++) {
 					for(j = 0; j < bout; j++, i++) {
 						Int64_t val;
 						double Sum;
