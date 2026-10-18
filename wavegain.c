@@ -20,6 +20,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+#include <float.h>
 #include <string.h>
 #include <time.h>
 #include <ctype.h>
@@ -347,16 +348,26 @@ int get_gain(const char *filename, double *track_peak, double *track_gain,
         if (!count) break;
         if (info->meter && !wg_meter_add(info->meter, buffer, (size_t)count)) goto done;
         frames += count;
-        for (ch = 0; ch < opt.channels; ch++) {
-            for (j = 0; j < count; j++) {
-                double value = buffer[ch][j];
-                if (!isfinite(value)) { fprintf(stderr, " Non-finite PCM in %s.\n", filename); goto done; }
-                info->minimum[ch] = fmin(info->minimum[ch], value);
-                info->maximum[ch] = fmax(info->maximum[ch], value);
-                if (!settings->fast) offset[ch] += value;
-                if (!high_rate) buffer[ch][j] = value * 32767.;
-            }
-        }
+		for (ch = 0; ch < opt.channels; ch++) {
+			double minimum = info->minimum[ch], maximum = info->maximum[ch];
+			/* Retain per-addition binary64 rounding on extended-precision targets. */
+#if defined(FLT_EVAL_METHOD) && FLT_EVAL_METHOD == 0
+			double sum = offset[ch];
+#else
+			volatile double sum = offset[ch];
+#endif
+			double *samples = buffer[ch];
+			for (j = 0; j < count; j++) {
+				double value = samples[j];
+				if (!isfinite(value)) { fprintf(stderr, " Non-finite PCM in %s.\n", filename); goto done; }
+				minimum = fmin(minimum, value);
+				maximum = fmax(maximum, value);
+				if (!settings->fast) sum += value;
+				if (!high_rate) samples[j] = value * 32767.;
+			}
+			info->minimum[ch] = minimum; info->maximum[ch] = maximum;
+			offset[ch] = sum;
+		}
         if (!settings->lufs) {
             int analysis_count = (int)count;
             if (high_rate) {

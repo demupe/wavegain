@@ -1,3 +1,14 @@
+Stereo analysis follow-up (2026-10-18; base 8a9a9f7):
+- [IMPLEMENTED] AArch64 paired IIR histories and immediate second-stage
+    filtering retain scalar arithmetic and complete planar output histories.
+    Other targets retain the former paired implementation by default.
+    Local peak/DC accumulators preserve summation order; extended-evaluation
+    targets retain volatile binary64 DC rounding points.
+    See doc/stereo-optimization.txt and doc/stereo-performance-windows.json.
+- [OPEN] Native GCC/MSVC, hardware x64, x87, macOS/Linux and real-music
+    throughput validation. Investigate x64 filter register pressure before
+    enabling the full-history implementation on that architecture.
+
 Exact mono filter reuse (2026-10-17; base 31cf06a):
 - [IMPLEMENTED] Compute identical mono IIR channel filters once and mirror
     output histories; disable reuse after stereo until an analysis reset.

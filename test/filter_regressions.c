@@ -65,10 +65,16 @@ static void kernels(void)
             for (i = 0; i < COUNT;) {
                 size_t n = (i % 37) + 1;
                 if (n > COUNT-i) n = COUNT-i;
+#if WAVEGAIN_STEREO_HISTORY
+				filterStereoHistory(left+MAX_ORDER+i,right+MAX_ORDER+i,
+				                    pl+MAX_ORDER+i,pr+MAX_ORDER+i,
+				                    ql+MAX_ORDER+i,qr+MAX_ORDER+i,n,ABYule[k],ABButter[k]);
+#else
                 filterYulePair(left+MAX_ORDER+i,right+MAX_ORDER+i,
                                pl+MAX_ORDER+i,pr+MAX_ORDER+i,n,ABYule[k]);
                 filterButterPair(pl+MAX_ORDER+i,pr+MAX_ORDER+i,
                                  ql+MAX_ORDER+i,qr+MAX_ORDER+i,n,ABButter[k]);
+#endif
                 i += n;
             }
             assert(!memcmp(yl,pl,sizeof(yl)) && !memcmp(yr,pr,sizeof(yr)));

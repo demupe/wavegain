@@ -401,6 +401,16 @@ typedef double filter_pair __attribute__((vector_size(16)));
 #define PAIR_AT(left, right, offset) \
     ((filter_pair){(left)[offset], (right)[offset]})
 
+/* Twenty paired histories need many vector registers. Use the cached path
+ * on AArch64; keep the two-pass path on targets with fewer registers. */
+#ifndef WAVEGAIN_STEREO_HISTORY
+# if defined(__aarch64__)
+#  define WAVEGAIN_STEREO_HISTORY 1
+# else
+#  define WAVEGAIN_STEREO_HISTORY 0
+# endif
+#endif
+#if !WAVEGAIN_STEREO_HISTORY
 static void
 filterYulePair(const Float_t *left, const Float_t *right,
                Float_t *outleft, Float_t *outright, size_t count,
@@ -452,6 +462,62 @@ filterButterPair(const Float_t *left, const Float_t *right,
         left++; right++;
     }
 }
+
+#else
+/* Preserve each scalar expression, retaining causal histories in local vectors.
+ * The second stage consumes each first-stage result immediately; histories
+ * are still written to the planar buffers for chunk/window boundaries. */
+static void
+filterStereoHistory(const Float_t *left, const Float_t *right,
+	Float_t *step_left, Float_t *step_right,
+	Float_t *out_left, Float_t *out_right, size_t count,
+	const Float_t *yule, const Float_t *butter)
+{
+	FILTER_NO_CONTRACT
+	filter_pair x[10], y[10];
+	filter_pair b1 = PAIR_AT(out_left, out_right, -1);
+	filter_pair b2 = PAIR_AT(out_left, out_right, -2);
+	for (int j = 0; j < 10; j++) {
+		x[j] = PAIR_AT(left, right, -j-1);
+		y[j] = PAIR_AT(step_left, step_right, -j-1);
+	}
+	while (count--) {
+		filter_pair input = PAIR_AT(left, right, 0);
+		filter_pair result = 1e-10 + input * yule[0]
+			- y[0] * yule[1]
+			+ x[0] * yule[2]
+			- y[1] * yule[3]
+			+ x[1] * yule[4]
+			- y[2] * yule[5]
+			+ x[2] * yule[6]
+			- y[3] * yule[7]
+			+ x[3] * yule[8]
+			- y[4] * yule[9]
+			+ x[4] * yule[10]
+			- y[5] * yule[11]
+			+ x[5] * yule[12]
+			- y[6] * yule[13]
+			+ x[6] * yule[14]
+			- y[7] * yule[15]
+			+ x[7] * yule[16]
+			- y[8] * yule[17]
+			+ x[8] * yule[18]
+			- y[9] * yule[19]
+			+ x[9] * yule[20];
+
+		filter_pair output = result * butter[0]
+			- b1 * butter[1] + y[0] * butter[2]
+			- b2 * butter[3] + y[1] * butter[4];
+		*step_left++ = result[0]; *step_right++ = result[1];
+		*out_left++ = output[0]; *out_right++ = output[1];
+		for (int j = 9; j > 0; j--) { x[j] = x[j-1]; y[j] = y[j-1]; }
+		x[0] = input; y[0] = result;
+		b2 = b1; b1 = output;
+		left++; right++;
+	}
+}
+
+#endif
 
 #undef PAIR_AT
 #endif
@@ -590,10 +656,16 @@ AnalyzeSamples ( const Float_t* left_samples, const Float_t* right_samples, size
 #endif
 #ifdef WAVEGAIN_HAVE_FILTER_PAIR
         if (num_channels == 2) {
+#if WAVEGAIN_STEREO_HISTORY
+			filterStereoHistory(curleft, curright, lstep+totsamp, rstep+totsamp,
+			                    lout+totsamp, rout+totsamp, cursamples,
+			                    ABYule[freqindex], ABButter[freqindex]);
+#else
             filterYulePair(curleft, curright, lstep+totsamp, rstep+totsamp,
                            cursamples, ABYule[freqindex]);
             filterButterPair(lstep+totsamp, rstep+totsamp, lout+totsamp, rout+totsamp,
                              cursamples, ABButter[freqindex]);
+#endif
         } else
 #endif
         {
