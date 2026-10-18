@@ -94,7 +94,7 @@ DCオフセット補正は既定でトラック単位です。`-q`でアルバ�
 
 MITライセンスのlibebur128を同梱し、R128Netを参考にしたCの最適化、ステレオのブロックエネルギー計算のSIMD化、ピーク測定専用の処理経路を追加しています。libebur128の別途インストールや.NETランタイムは不要です。
 
-実装、ライセンス、性能測定、精度の範囲については[実装・検証レポート](doc/design/loudness-implementation.md)を参照してください。
+実装、ライセンス、精度の条件は[実装概要](doc/design/loudness-implementation.md)を参照してください。
 
 ## 対応形式と大容量ファイル
 
@@ -178,7 +178,7 @@ Windowsでは`python tools/check_windows.py --cc aarch64-w64-mingw32-clang --opt
 
 テスト一覧と個別実行の方法は[test/README.txt](test/README.txt)にまとめています。`python test/run_suite.py --list`で一覧、`--only NAME`で指定グループを実行できます。Windowsのビルド用スクリプトに`--ubsan`を追加すると、未定義動作と浮動小数点から整数への変換オーバーフローも検査します。
 
-旧版との出力比較には`test/pcm_equivalence.py`、速度と出力一致の同時測定には`tools/benchmark_native.py`を使用できます。どちらも`--reference`と`--candidate`で実行ファイルを指定し、ベンチマークでは`--output timings.json`も指定します。Windowsでは`.exe`を含むパスを指定してください。測定条件と結果は[doc/performance/pcm-optimization.txt](doc/performance/pcm-optimization.txt)に記載しています。
+旧版との出力比較には`test/pcm_equivalence.py`、速度と出力一致の同時測定には`tools/benchmark_native.py`を使用できます。どちらも`--reference`と`--candidate`で実行ファイルを指定し、ベンチマークでは`--output timings.json`も指定します。Windowsでは`.exe`を含むパスを指定してください。測定にはウォームキャッシュを使用するため、実素材や低速ストレージでの性能を保証するものではありません。詳細な調査記録・計測JSON・レビュー履歴は、Git管理外の`local-research/`で管理します。このフォルダはcloneやリリースには含まれません。
 
 ## 動作の変更点
 

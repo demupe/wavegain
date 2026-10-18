@@ -109,8 +109,7 @@ regressions on copies. outsox.wav is retained as a larger manual fixture;
 it is not an independent audio-quality oracle or a core benchmark.
 
 Native macOS ARM64 core, ASan/UBSan and FFmpeg interoperability checks pass;
-see ../doc/performance/macos-validation-2026-10-18.txt for scope and evidence.
+dated measurement details are retained locally under ../local-research/.
 Open validation includes official EBU conformance signals, real SMB/cloud and
 ACL behavior, native GCC/MSVC, Linux execution, hardware x64 throughput,
-and perceptual dither evaluation. See ../TODO and the dated review report:
-../doc/reviews/test-suite-review-2026-10-18.txt.
+and perceptual dither evaluation. See ../TODO for current open work.

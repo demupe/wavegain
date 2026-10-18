@@ -1,240 +1,31 @@
-Native LUFS/True Peak refinement from C# comparison (2026-10-18; de0a68a base):
-- [IMPLEMENTED] Dense 4x phases retain exact tap order; AArch64 schedules
-    four independent frames; conservative peak bounds skip only blocks
-    unable to raise the per-call peak. Retain only final interpolation ring
-    contents, specialize adapter packing and omit unused LUFS input scaling.
-    Core/sanitizer/interop gates, O3/x64 kernel oracles and 1,260 complete-file
-    comparisons pass. Real-program O2 analysis improves about 1.8x, to
-    10.46 s s16 / 10.80 s f32, near C# (10.82 / 11.30 s) on this Mac/work.
-    Report/data: doc/performance/lufs-csharp-refinement-2026-10-18.txt and .json.
-- [OPEN] Native Windows/MSVC/Linux and other real works. The coarse screen
-    adds overhead on continuously loud synthetic signals versus forcing
-    full interpolation; preserve the measured workload limits in the report.
+Open work
+=========
 
-Apple Silicon optimization enablement audit (2026-10-18; de0a68a):
-- [DONE] Standard Apple clang O2 selects paired SIMD, AArch64 stereo history
-    retention and mono reuse. PCM/gain/resampler/peak-DC optimizations have
-    no Windows-only gate. No product source change was necessary.
-    verified-release passes; isolated stereo-history timings/output hashes:
-    doc/performance/macos-arm-optimization-audit-2026-10-18.txt and .json.
+Validation
+----------
+- Validate official ITU/EBU conformance signals across supported rates and
+  channel layouts; native-reference equality alone is not certification.
+- Extend native GCC/MSVC/Linux, Intel Mac and hardware x64 validation.
+  Check extended-precision/x87 rounding and x64 filter register pressure
+  before enabling AArch64-style full stereo histories there.
+- Measure sustained real music, other works and cold-storage performance.
+  Conservative peak screening can add overhead on continuously loud signals.
+- Validate real Windows ACL denials, sharing failures, SMB/cloud providers,
+  case-sensitive NTFS and concurrent input replacement. Expand parser fuzzing.
+- Evaluate the optional rate-aware dither through listening tests.
 
-macOS ARM64 validation (2026-10-18; tested de0a68a against v1.5.0):
-- [DONE] Apple M1 Pro / Apple clang 21: debug, O2, O3/ThinLTO and
-    ASan/UBSan core gates (15 passing groups; four Windows-only skips).
-    FFmpeg interoperability passes all four groups. O2 and O3/ThinLTO each
-    match v1.5.0 O2 in all 1,260 complete-file differential cases.
-    Report and raw evidence: doc/performance/macos-validation-2026-10-18.txt
-    and doc/performance/macos-validation-2026-10-18.json.
-- [OPEN] Intel Mac hardware, Linux, native GCC/MSVC, official EBU signals,
-    sustained real-music/cold-storage throughput and the platform-specific
-    filesystem/concurrency checks below remain outside this validation.
+Implementation and maintenance
+-------------------------------
+- Encapsulate analysis/dither/RNG globals before library or parallel use;
+  define deterministic album and RNG ordering first.
+- Profile noise-shaped dither and further common-path specialization while
+  preserving histories, RNG sequence and rounding.
+- Evaluate further interpolation screening/data-layout changes using exact
+  kernel and complete-output checks; preserve output peak verification.
+- Clean up legacy non-UTF-8 license-comment encoding without altering notices.
+  The existing Clang warning remains until that work is completed.
+- Review outdated Debian packaging.
 
-Test organization and coverage (2026-10-18; base 87e12f8):
-- [IMPLEMENTED] Shared core/interop inventory, explicit CLI selection, strict
-    rejection/sanitizer checks, and Windows UBSan mode. Added native publication
-    collisions, sharing-lock/read-only failures, stdout byte equality, legacy
-    malformed fixtures, retained hard-link IDs, LUFS duration and option bounds.
-    Guide: test/README.txt; evidence: doc/reviews/test-suite-review-2026-10-18.txt.
-- [OPEN] Official EBU conformance; Linux, GCC/MSVC and hardware x64;
-    real ACL denials, SMB/cloud,
-    case-sensitive NTFS, concurrent input replacement and parser fuzzing.
-
-Resolved audit findings (2026-10-18; reviewed HEAD 2793ef4):
-Report: doc/reviews/review-followup-2026-10-18.txt; observed fixture results in .json.
-- [FIXED] A1: Shared finite/positive/invertible gain-scale validation and an
-    apply-pass check prevent infinite Wave64 Undo scales. Retain its upper bound.
-- [FIXED] A2: Windows -e allocates checked command lengths, validates Win32
-    path lengths, and refuses shell-limit overflow before processing audio.
-    Command environment filenames are dynamically allocated.
-- [FIXED] A3: Invocation-wide input identity/path tracking rejects duplicates
-    before each batch, including aliases of the original and replaced file.
-- [FIXED] A4: Validate effective PCM length against frame size before deriving
-    bounded frame counts; RIFF padding and valid odd mono 8-bit input still work.
-- [FIXED] A5: Album and Windows command DC display use truncated double values
-    without narrowing to int, including large finite float input and log output.
-- [FIXED] A6: Extensible WAV/Wave64 validate extension length and precision;
-    valid left-aligned PCM and unspecified legacy precision remain supported.
-Investigation probes (not gate tests): test/investigate_followup.py and
-test/audit_command_bounds.c. Normal regression gate: test/followup_regressions.py
-and test/command_regressions.c. Details: doc/reviews/review-followup-fixes-2026-10-18.txt.
-
-Stereo analysis follow-up (2026-10-18; base 8a9a9f7):
-- [IMPLEMENTED] AArch64 paired IIR histories and immediate second-stage
-    filtering retain scalar arithmetic and complete planar output histories.
-    Other targets retain the former paired implementation by default.
-    Local peak/DC accumulators preserve summation order; extended-evaluation
-    targets retain volatile binary64 DC rounding points.
-    See doc/performance/stereo-optimization.txt and doc/performance/stereo-performance-windows.json.
-- [OPEN] Native GCC/MSVC, hardware x64, x87, Linux and real-music
-    throughput validation. Investigate x64 filter register pressure before
-    enabling the full-history implementation on that architecture.
-
-Exact mono filter reuse (2026-10-17; base 31cf06a):
-- [IMPLEMENTED] Compute identical mono IIR channel filters once and mirror
-    output histories; disable reuse after stereo until an analysis reset.
-    All-rate mixed-channel state probes, ARM64/x64 gates, UBSan, and 1,260
-    complete audio-file comparisons pass. Mono analysis is ~1.75x faster
-    on Windows ARM64 (O2 and O3/ThinLTO); stereo speed is essentially unchanged.
-    Additional mono RMS reuse did not help and was removed. Measurements and
-    platform limits: doc/performance/mono-optimization.txt, mono-performance-windows.json.
-- [OPEN] Confirm on native MSVC/GCC, Linux and hardware x64; measure
-    long real-music mono recordings and default release flags on those targets.
-
-Windows directory quality follow-up (2026-10-17; base c1f6d79):
-- [FIXED] Recursive junction/symlink cycles and unintended external directory
-    traversal. Cloud reparse points are distinguished from directory redirects;
-    explicit linked roots remain usable.
-- [FIXED] Output-inside-input checks resolve physical Windows directory paths
-    and reject aliases or failed checks. Real junction/alias and output-byte
-    tests are part of the gate. See doc/reviews/windows-directory-quality.txt.
-- [OPEN] Real SMB/cloud-provider, case-sensitive NTFS and other POSIX hosts.
-
-Verified PCM optimization follow-up (2026-10-17; base 44db4a7):
-- [IMPLEMENTED] Specialized no-dither/no-limiter integer gain application,
-    preserving half-LSB rounding, DC and the legacy symmetric 32-bit clamp.
-    Kernel oracles, UBSan and 1,260 prior/current output comparisons pass.
-    Direct planar output packing was measured and rejected (no speed gain).
-- [FIXED] Windows directory diagnostics preserve GetLastError before printing,
-    treat system messages as data, and fall back safely if formatting fails.
-    Fault injection covers these cases. Avoid MinGW argc/argv macro collisions
-    in getopt declarations and one-past-end channel-stride pointer formation.
-- [IMPLEMENTED] Exact integer PCM decode specialization and mirrored high-rate
-    FIR history with bitwise oracles; configurable release optimization/LTO;
-    ReplayGain and loudness verification use the actual linker flags.
-    See doc/performance/pcm-optimization.txt and doc/performance/pcm-performance-windows.json.
-- [IMPLEMENTED] Native Windows gate runner, prior/current complete output
-    comparison (now 1,260 conditions), and portable warm-cache benchmark tooling.
-- [FIXED] Windows x64 binary64 subnormal gain-metadata serialization; expanded
-    positive/negative subnormal and signed-zero regression coverage.
-- [OPEN] Native GCC/MSVC and Linux verification of these changes;
-    official EBU signal conformance and sustained real-music measurements.
-    File-level parallelism still requires the state encapsulation listed below.
-
-Feature follow-up (unreleased; base v1.4.5):
-- [FIXED] PR review: preserve normal POSIX permissions on separate outputs,
-    use exclusive rename/link/copy publication across filesystem capabilities,
-    and keep zero DC offset display consistent with v1.4.5 (no negative zero).
-- [IMPLEMENTED] Separate --output / --output-dir with no-clobber publication
-    and relative recursive layout; originals are retained.
-- [IMPLEMENTED] DC-corrected true-peak measurement/ceiling and verification
-    of actual quantized output before publication.
-- [IMPLEMENTED] Exact-block BS.1770 integrated LUFS with pooled album gating,
-    explicit targets and manual-only treatment of below-gate material.
-- [IMPLEMENTED] 176.4/192 kHz input: analysis-only FIR decimation for legacy
-    ReplayGain; source-rate LUFS/true peak; unchanged output rate/frame count.
-- [IMPLEMENTED] Optional rate-aware TPDF/first-order dither family; existing
-    F44 family remains the default. Listening evaluation remains open.
-- [IMPLEMENTED] R128Net-inspired C kernel optimizations with native reference
-    equality tests. Details: doc/design/loudness-implementation.md.
-- [IMPLEMENTED] Further native improvements: expression-preserving stereo
-    block-energy SIMD and a peak-only adapter bypass for loudness filtering.
-    Three-way reference/previous/current equality and CPU benchmarks recorded.
-- [DONE] New output paths and measurement modes pass the Windows ARM64 native
-    gate and Windows-emulated x64 gate. Native MSVC/GCC, hardware x64 and
-    SMB/cloud-specific behavior remain open, as listed above.
-- [OPEN] Evaluate additional R128Net screening/dense-loop optimizations using
-    the reference equality gate; synthetic CPU benchmarks are not end-to-end
-    throughput claims. No .NET runtime dependency is introduced.
-
-Safety review follow-up: 2026-10-16 (base commit ef3efeb).
-Report: doc/reviews/code-review-2026-10-16.md
-Reproduce: make check; make check-sanitize; make check-interop
-
-- [DONE] R1/R7: validate RIFF chunk boundaries before editing headers;
-    preserve marker-like metadata and rebuild odd-length data padding.
-- [DONE] R2/R3/R5: bounded AIFF/AIFC header parsing, mono/stereo 16-bit
-    validation, and fresh WAV headers for AIFF-to-WAV conversions.
-- [DONE] R4: stream formatted logs without a fixed-size message buffer;
-    reject log filenames that exceed the path buffer.
-- [DONE] R8/R9: validate WAV gain payloads and finite positive scales;
-    decode binary64 without exponent shifts; reconstruct signed PCM through
-    unsigned arithmetic; preserve quantizer bits using memcpy.
-- [DONE] R10/R11: propagate metadata/header/seek/finalization failures,
-    clean up allocation failures, preserve originals and report failed batches
-    with a nonzero status. Fault injection and CLI regressions cover these.
-- [IMPLEMENTED, VALIDATION OPEN] R6: exclusive Windows temporary creation
-    and replacement via MoveFileExA without pre-deleting the original.
-    Native Windows success, path, sharing-lock and read-only failure cases pass
-    the regression gate. Real ACL-denial/SMB/cloud validation remains open.
-- [DONE] Serialize clean/build for debug/release/asan under parallel make;
-    include UBSan and add make check-sanitize. Restore working directories
-    on traversal errors and avoid recursive POSIX directory symlink cycles.
-- [FOLLOW-UP ABOVE] Sound-quality extensions: the optional rate dither,
-    true-peak/headroom and output-peak measurement are implemented in the
-    unreleased feature branch. Ordinary legacy output remains unchanged.
-- [OPEN] Encapsulate analysis/dither globals before library or parallel use.
-    The existing non-UTF-8 license comment is unchanged; Clang's debug build
-    still reports its encoding warning. License-header cleanup remains open.
-
-Implementation follow-up: 2026-10-14 (base commit 8b224d3).
-Details: doc/reviews/todo-fixes.txt
-Historical investigation: doc/reviews/todo-investigation.txt / .json
-Current probe results: doc/reviews/todo-fixed.json
-Reproduce: make check; make check-interop (requires FFmpeg)
-
-- [DONE] Native 64-bit audio corruption / forced -m32 build.
-    Fixed in 8b224d3: fixed-width PCM, portable lrint, native builds,
-    large-file offsets and fast-mode positions. PCM and large-file checks
-    cover the fix, including sparse Wave64 input/output above 4 GiB.
-
-- [DONE] Percentages sometimes show > 100% done (or inf%).
-    Progress uses processed frames per file and planned per-file durations
-    overall. Short/fractional durations, mixed sample rates, skipped files,
-    Undo and empty audio are covered. Successful writes finish at 100%.
-
-- [DONE] ReplayGain / manual gain / DC correction / clipping.
-    Channel extrema and actual frame counts determine peaks after the
-    selected track/album DC correction. Gain caps use corrected peaks;
-    album caps are selected after all track means are known. Manual gain
-    is added once. The limiter retains its existing cap unless --noclip
-    is used. New Peak is documented as the pre-limiter prediction.
-    Regression coverage includes asymmetric PCM/float, distinct album
-    means, manual gain, no-offset, limiter and unshaped dither.
-
-- [DONE] --help layout, wildcard instructions, man/HTML sync.
-    doc/help.json generates CLI text, README help, nroff and HTML via
-    make docs. make check-docs rejects stale files and undocumented options.
-    Build/platform conditions, Wave64, byte-based fast thresholds, quoting,
-    case sensitivity and peak/limiter semantics are retained or clarified.
-    Runtime checks covered macOS arm64/x86_64 and Linux x86_64; a MinGW-w64
-    build was checked under Wine. Later Windows ARM64 native and emulated x64
-    runs are recorded above; MSVC and hardware x64 remain follow-ups.
-- [OPEN] The 'gain' chunk scale is big-endian on macOS (__APPLE__) and
-    little-endian elsewhere, so -w files are not portable across them.
-
-- [OPEN] Standard license/copyright headers in all sources.
-    Deferred to a separate change: source license notices are unchanged
-    here. Findings are in doc/reviews/todo-investigation.txt.
-
-Performance investigation (2026-10-14): doc/performance/conversion-performance.txt
-- [DONE] Paired stereo ReplayGain filters: expression-preserving SIMD on
-    Clang and GCC 5+ for AArch64 and x86_64, with FP contraction disabled in
-    the filters so scalar and paired paths are bitwise identical.
-    Mono and other targets retain scalar/legacy paths.
-    Use make verified-release (VERIFY_SIMD=auto|1|0) to require runtime
-    equality before installation.
-    Kernel/API state, histogram boundaries and unaffected-rate output
-    match the scalar reference bit-for-bit on tested builds. Current benchmark
-    gives ~1.5x ordinary stereo conversion throughput on macOS arm64.
-    Details and limits: doc/performance/filter-simd-investigation.txt.
-- [DONE] IEEE float serializer: replace frexp/byte reconstruction with guarded
-    binary32 bit copying and an explicit little-endian fallback. Subnormals
-    retain their value; signed zeros still serialize as positive zero.
-    Exact-byte edge tests and input immutability checks cover the serializer.
-- [DONE] 88.2kHz ReplayGain: both old denominators were unstable (real poles
-    ~1.426 and ~1.067). Replace only this rate with FFmpeg coefficients in both
-    table layouts; all twelve rates pass stability checks. Reject non-finite
-    RMS levels and clamp before histogram casts. FFmpeg comparison and
-    mono/stereo WAV/Wave64 conversion/undo checks cover the corrected rate.
-- [DONE] Legacy SSE2 Yule kernel used padding instead of b10. Correct its
-    final numerator tap; all-rate impulse/DC/tone checks against long-double
-    reference pass under x86_64 Clang, including Windows x64 emulation.
-    Native MSVC and hardware x64 remain platform validation follow-ups.
-- [DONE] Reuse conversion/packing buffers per output file; check allocation,
-    byte-count overflow and write failures before replacing the original file.
-    Buffer reuse preserves integer packing and gain/dither/RNG arithmetic.
-    See doc/performance/conversion-safe-implementation.txt and conversion-safe-performance.json.
-    Overall speed differences remain small in the 96 kHz synthetic benchmark.
-- [OPEN] Profile noise-shaped dither and common-path specialization separately;
-    preserve RNG/history/rounding semantics. Compiler flags alone gave only
-    modest or inconsistent gains in this workload.
+Keep current behavior in README and tests. Detailed investigations, timings,
+JSON evidence and completed-work histories are maintained locally under the
+ignored local-research/ directory; they are not distributed with the repository.

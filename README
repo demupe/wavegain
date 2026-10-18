@@ -104,7 +104,7 @@ dither retain their original processing paths unless new options are selected.
 The measurement engine bundles MIT-licensed libebur128 with C optimizations
 inspired by R128Net, plus stereo block-energy SIMD and a peak-only processing
 path. No installed libebur128 or .NET runtime is needed. Implementation,
-licenses, performance measurements and precision limits are documented in
+licenses and precision contracts are documented in
 doc/design/loudness-implementation.md.
 
 Supported formats and large files
@@ -210,11 +210,11 @@ For release-to-release byte comparisons and repeatable performance measurements:
     python test/pcm_equivalence.py --reference ./wavegain-before --candidate ./wavegain
     python tools/benchmark_native.py --reference ./wavegain-before --candidate ./wavegain --output timings.json
 On Windows, use explicit .exe paths. These checks retain input files; benchmark
-times use warm OS caches. See doc/performance/pcm-optimization.txt for evidence and limits.
+times use warm OS caches and do not establish cold-storage throughput.
 
-Documentation index: doc/README.txt. Implementation records are in doc/design/,
-performance reports and measurements in doc/performance/, and safety reviews
-and fix records in doc/reviews/. Historical evidence is kept with its report.
+Documentation index: doc/README.txt. Keep tracked documentation concise. Detailed
+investigations, benchmark data and review histories belong in the gitignored
+local-research/ directory, which is not included in clones or releases.
 
 CLI help and manuals come from doc/help.json. After editing it, run make docs.
 make check-docs verifies the generated README help, help_generated.h, man page

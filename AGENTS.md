@@ -34,6 +34,6 @@ WaveGain applies ReplayGain to wave files by rewriting the PCM data directly (op
   - A new option usually touches `doc/help.json`, `main.c`, `main.h`, `wavegain.c` and `audio.c`.
 - Version string: `WAVEGAIN_VERSION` in `main.h`, also in `README`, `debian/wavegain.1` and `doc/manual/index.html`. Release commits are titled `release vX.Y.Z` and contain only that version bump.
 - There is no CHANGELOG. Record user-visible output differences in the README's "Behavior changes" section, and record open items in `TODO`.
-- Documentation index: `doc/README.txt`. Keep implementation records in `doc/design/`, performance reports and their JSON evidence in `doc/performance/`, and safety reviews/fix records in `doc/reviews/`. Keep report/JSON pairs together and update references when moving them. `doc/help.json` and `doc/manual/` retain their generator-defined paths.
+- Documentation index: `doc/README.txt`. Keep tracked documentation concise: usage, current design contracts and open work. Store detailed investigations, benchmarks/JSON evidence and review histories under gitignored `local-research/` (not distributed with the repository); keep report/data pairs together and preserve recorded measurements. Do not force-add local research or internal information. `doc/help.json` and `doc/manual/` retain their generator-defined paths.
 - `debian/` packaging is outdated. Windows builds use the MSVC project in `mswindows/`.
 - Code style: tab indentation, English comments. Keep the existing per-file license headers unchanged; license cleanup is an open `TODO` item.
