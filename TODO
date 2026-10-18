@@ -1,11 +1,42 @@
+Native LUFS/True Peak refinement from C# comparison (2026-10-18; de0a68a base):
+- [IMPLEMENTED] Dense 4x phases retain exact tap order; AArch64 schedules
+    four independent frames; conservative peak bounds skip only blocks
+    unable to raise the per-call peak. Retain only final interpolation ring
+    contents, specialize adapter packing and omit unused LUFS input scaling.
+    Core/sanitizer/interop gates, O3/x64 kernel oracles and 1,260 complete-file
+    comparisons pass. Real-program O2 analysis improves about 1.8x, to
+    10.46 s s16 / 10.80 s f32, near C# (10.82 / 11.30 s) on this Mac/work.
+    Report/data: doc/performance/lufs-csharp-refinement-2026-10-18.txt and .json.
+- [OPEN] Native Windows/MSVC/Linux and other real works. The coarse screen
+    adds overhead on continuously loud synthetic signals versus forcing
+    full interpolation; preserve the measured workload limits in the report.
+
+Apple Silicon optimization enablement audit (2026-10-18; de0a68a):
+- [DONE] Standard Apple clang O2 selects paired SIMD, AArch64 stereo history
+    retention and mono reuse. PCM/gain/resampler/peak-DC optimizations have
+    no Windows-only gate. No product source change was necessary.
+    verified-release passes; isolated stereo-history timings/output hashes:
+    doc/performance/macos-arm-optimization-audit-2026-10-18.txt and .json.
+
+macOS ARM64 validation (2026-10-18; tested de0a68a against v1.5.0):
+- [DONE] Apple M1 Pro / Apple clang 21: debug, O2, O3/ThinLTO and
+    ASan/UBSan core gates (15 passing groups; four Windows-only skips).
+    FFmpeg interoperability passes all four groups. O2 and O3/ThinLTO each
+    match v1.5.0 O2 in all 1,260 complete-file differential cases.
+    Report and raw evidence: doc/performance/macos-validation-2026-10-18.txt
+    and doc/performance/macos-validation-2026-10-18.json.
+- [OPEN] Intel Mac hardware, Linux, native GCC/MSVC, official EBU signals,
+    sustained real-music/cold-storage throughput and the platform-specific
+    filesystem/concurrency checks below remain outside this validation.
+
 Test organization and coverage (2026-10-18; base 87e12f8):
 - [IMPLEMENTED] Shared core/interop inventory, explicit CLI selection, strict
     rejection/sanitizer checks, and Windows UBSan mode. Added native publication
     collisions, sharing-lock/read-only failures, stdout byte equality, legacy
     malformed fixtures, retained hard-link IDs, LUFS duration and option bounds.
     Guide: test/README.txt; evidence: doc/reviews/test-suite-review-2026-10-18.txt.
-- [OPEN] FFmpeg interop on a host with ffmpeg/ffprobe; official EBU conformance;
-    POSIX/macOS, GCC/MSVC, ASan and hardware x64; real ACL denials, SMB/cloud,
+- [OPEN] Official EBU conformance; Linux, GCC/MSVC and hardware x64;
+    real ACL denials, SMB/cloud,
     case-sensitive NTFS, concurrent input replacement and parser fuzzing.
 
 Resolved audit findings (2026-10-18; reviewed HEAD 2793ef4):
@@ -34,7 +65,7 @@ Stereo analysis follow-up (2026-10-18; base 8a9a9f7):
     Local peak/DC accumulators preserve summation order; extended-evaluation
     targets retain volatile binary64 DC rounding points.
     See doc/performance/stereo-optimization.txt and doc/performance/stereo-performance-windows.json.
-- [OPEN] Native GCC/MSVC, hardware x64, x87, macOS/Linux and real-music
+- [OPEN] Native GCC/MSVC, hardware x64, x87, Linux and real-music
     throughput validation. Investigate x64 filter register pressure before
     enabling the full-history implementation on that architecture.
 
@@ -46,7 +77,7 @@ Exact mono filter reuse (2026-10-17; base 31cf06a):
     on Windows ARM64 (O2 and O3/ThinLTO); stereo speed is essentially unchanged.
     Additional mono RMS reuse did not help and was removed. Measurements and
     platform limits: doc/performance/mono-optimization.txt, mono-performance-windows.json.
-- [OPEN] Confirm on native MSVC/GCC, macOS/Linux and hardware x64; measure
+- [OPEN] Confirm on native MSVC/GCC, Linux and hardware x64; measure
     long real-music mono recordings and default release flags on those targets.
 
 Windows directory quality follow-up (2026-10-17; base c1f6d79):
@@ -56,7 +87,7 @@ Windows directory quality follow-up (2026-10-17; base c1f6d79):
 - [FIXED] Output-inside-input checks resolve physical Windows directory paths
     and reject aliases or failed checks. Real junction/alias and output-byte
     tests are part of the gate. See doc/reviews/windows-directory-quality.txt.
-- [OPEN] Real SMB/cloud-provider, case-sensitive NTFS and native POSIX checks.
+- [OPEN] Real SMB/cloud-provider, case-sensitive NTFS and other POSIX hosts.
 
 Verified PCM optimization follow-up (2026-10-17; base 44db4a7):
 - [IMPLEMENTED] Specialized no-dither/no-limiter integer gain application,
@@ -75,7 +106,7 @@ Verified PCM optimization follow-up (2026-10-17; base 44db4a7):
     comparison (now 1,260 conditions), and portable warm-cache benchmark tooling.
 - [FIXED] Windows x64 binary64 subnormal gain-metadata serialization; expanded
     positive/negative subnormal and signed-zero regression coverage.
-- [OPEN] Native GCC/MSVC and macOS/Linux verification of these changes;
+- [OPEN] Native GCC/MSVC and Linux verification of these changes;
     official EBU signal conformance and sustained real-music measurements.
     File-level parallelism still requires the state encapsulation listed below.
 

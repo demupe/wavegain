@@ -40,7 +40,9 @@ docs                  Generated help/manuals and option documentation.
 support_contracts     Normal rejection vs crash/sanitizer error; Python -O guard.
 filters               All-rate scalar/SIMD/mono/history equivalence and the
                       actual built CLI's output against a scalar CLI.
-loudness              Three-way native reference/optimized energy/gating/peak checks.
+loudness              Three-way native reference/optimized energy/gating/peak checks,
+                      including per-call peaks across tiny/64-frame boundaries,
+                      signed zeros, changing magnitudes and float neighbors.
 portability           PCM/float serialization, buffers and sparse large WAV/RF64 I/O.
 wave64                Wave64 chunks, gain, formats, padding and sparse large I/O.
 review_io             Allocation/read/write/seek/finalization fault injection.
@@ -106,7 +108,9 @@ floating_point_exception.wav and memory_leak.wav are now exercised by edge
 regressions on copies. outsox.wav is retained as a larger manual fixture;
 it is not an independent audio-quality oracle or a core benchmark.
 
+Native macOS ARM64 core, ASan/UBSan and FFmpeg interoperability checks pass;
+see ../doc/performance/macos-validation-2026-10-18.txt for scope and evidence.
 Open validation includes official EBU conformance signals, real SMB/cloud and
-ACL behavior, native GCC/MSVC, POSIX/macOS execution, hardware x64 throughput,
+ACL behavior, native GCC/MSVC, Linux execution, hardware x64 throughput,
 and perceptual dither evaluation. See ../TODO and the dated review report:
 ../doc/reviews/test-suite-review-2026-10-18.txt.

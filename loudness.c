@@ -47,9 +47,18 @@ int wg_meter_add(WG_METER *m, double **pcm, size_t frames)
 		m->packed = p;
 		m->capacity = frames;
 	}
-	for (i = 0; i < frames; i++) for (ch = 0; ch < m->channels; ch++) {
-		if (!isfinite(pcm[ch][i])) return 0;
-		m->packed[i * m->channels + ch] = pcm[ch][i];
+	if (m->channels == 2) {
+		const double *left = pcm[0], *right = pcm[1];
+		for (i = 0; i < frames; i++) {
+			if (!isfinite(left[i]) || !isfinite(right[i])) return 0;
+			m->packed[2 * i] = left[i];
+			m->packed[2 * i + 1] = right[i];
+		}
+	} else {
+		for (i = 0; i < frames; i++) {
+			if (!isfinite(pcm[0][i])) return 0;
+			m->packed[i] = pcm[0][i];
+		}
 	}
 #if !defined(WG_EBUR_REFERENCE) && !defined(WG_EBUR_EXTRA_REFERENCE)
 	/* Peak-only measurement needs neither K-weighting nor a loudness ring.

@@ -363,7 +363,7 @@ int get_gain(const char *filename, double *track_peak, double *track_gain,
 				minimum = fmin(minimum, value);
 				maximum = fmax(maximum, value);
 				if (!settings->fast) sum += value;
-				if (!high_rate) samples[j] = value * 32767.;
+				if (!settings->lufs && !high_rate) samples[j] = value * 32767.;
 			}
 			info->minimum[ch] = minimum; info->maximum[ch] = maximum;
 			offset[ch] = sum;

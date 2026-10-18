@@ -1,0 +1,249 @@
+{
+  "date": "2026-10-18",
+  "commit": "de0a68a41086c93c7c1a88bb4f842e29868bc1d6",
+  "compiler": "Apple clang version 21.0.0 (clang-2100.3.34.2)\nTarget: arm64-apple-darwin25.6.0\nThread model: posix\nInstalledDir: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin\n",
+  "macros": {
+    "WAVEGAIN_FILTER_PAIR_SUPPORTED": "1",
+    "WAVEGAIN_FILTER_SIMD": "1",
+    "WAVEGAIN_HAVE_FILTER_PAIR": "1",
+    "WAVEGAIN_MONO_REUSE": "1",
+    "WAVEGAIN_STEREO_HISTORY": "1",
+    "__APPLE__": "1",
+    "__aarch64__": "1",
+    "__arm64__": "1"
+  },
+  "paired_double_assembly_examples": [
+    "fmul.2d\tv3, v20, v3[0]",
+    "fmul.2d\tv4, v20, v4[0]",
+    "fadd.2d\tv4, v4, v5",
+    "fmul.2d\tv5, v0, v5[0]",
+    "fsub.2d\tv4, v4, v5",
+    "fadd.2d\tv3, v4, v3",
+    "fmul.2d\tv4, v8, v4[0]",
+    "fsub.2d\tv3, v3, v4",
+    "fmul.2d\tv4, v4, v6[0]",
+    "fadd.2d\tv4, v3, v4",
+    "fmul.2d\tv6, v6, v7[0]",
+    "fsub.2d\tv4, v4, v6"
+  ],
+  "paired_double_arithmetic_instruction_count": 63,
+  "audit": "AArch64 history/SIMD and mono reuse enabled by default on Apple Silicon. PCM specialization, mirrored resampler history, integer gain specialization and local peak/DC accumulators have no Windows-only optimization gate. Windows OS-specific paths are file/error handling, not transferable audio kernels.",
+  "verification": {
+    "command": "make verified-release CC=clang",
+    "exit_code": 0,
+    "filter_rates": 12,
+    "loudness_rates": 14,
+    "scalar_default_cli_complete_file_cases": 12,
+    "result": "Filter sample bits, mono/stereo API state/histograms, chunks, resets and non-finite guards match; default CLI output bytes match scalar; loudness kernels match reference bit-for-bit.",
+    "build_warning": "Existing macOS linker -s is obsolete / unused argument warnings; no build failure."
+  },
+  "source_changes_required": false,
+  "platform_limit": "Native Apple Silicon (M1 Pro) only; does not establish Intel Mac speedup. AArch64 cached history remains disabled on x64 intentionally due register pressure.",
+  "benchmark": {
+    "platform": "macOS-26.7.1-arm64-arm-64bit-Mach-O",
+    "processor": "arm",
+    "method": "One warm-up, alternating order, median wall seconds; restoration/hashing outside timer; warm OS cache",
+    "binaries": {
+      "reference": {
+        "path": "/private/tmp/wavegain-macos-arm-audit/history-off",
+        "sha256": "0f318176021e5d44e6eefa9885ad7b35df5636327f6d5397668029a21b77b3d0"
+      },
+      "candidate": {
+        "path": "/private/tmp/wavegain-macos-arm-audit/default",
+        "sha256": "79c1b58e121d79919617f261cbe9e89d3dc0f097f52679ba1c254dca63e5146b"
+      }
+    },
+    "runs": 5,
+    "cases": [
+      {
+        "input": "44100-16.wav",
+        "rate": 44100,
+        "channels": 2,
+        "bits": 16,
+        "frames": 7938000,
+        "mode": "analyze",
+        "times": {
+          "reference": [
+            0.27749012503772974,
+            0.2834564170334488,
+            0.2721988329431042,
+            0.2821339999791235,
+            0.27952279208693653
+          ],
+          "candidate": [
+            0.2171279579633847,
+            0.22049670794513077,
+            0.2072615419747308,
+            0.22040304203983396,
+            0.2099932919954881
+          ]
+        },
+        "medians": {
+          "reference": 0.27952279208693653,
+          "candidate": 0.2171279579633847
+        },
+        "speedup": 1.2873643482341126,
+        "output_sha256": {}
+      },
+      {
+        "input": "44100-16.wav",
+        "rate": 44100,
+        "channels": 2,
+        "bits": 16,
+        "frames": 7938000,
+        "mode": "apply",
+        "times": {
+          "reference": [
+            0.35759658308234066,
+            0.32777299999725074,
+            0.3390154589433223,
+            0.40987541701179,
+            0.41132829198613763
+          ],
+          "candidate": [
+            0.2883836250985041,
+            0.2901945000048727,
+            0.28177366603631526,
+            0.27341279201209545,
+            0.28061712498310953
+          ]
+        },
+        "medians": {
+          "reference": 0.35759658308234066,
+          "candidate": 0.28177366603631526
+        },
+        "speedup": 1.2690915659813762,
+        "output_sha256": {
+          "reference": "69f2611a51c6b6c6a24d9f6011c237d064a5d1c344f4d02f7a0573260d0215a6",
+          "candidate": "69f2611a51c6b6c6a24d9f6011c237d064a5d1c344f4d02f7a0573260d0215a6"
+        }
+      },
+      {
+        "input": "96000-24.wav",
+        "rate": 96000,
+        "channels": 2,
+        "bits": 24,
+        "frames": 17280000,
+        "mode": "analyze",
+        "times": {
+          "reference": [
+            0.5872542909346521,
+            0.587006333982572,
+            0.6002586670219898,
+            0.593808125006035,
+            0.6209586668992415
+          ],
+          "candidate": [
+            0.4622244160855189,
+            0.45670125004835427,
+            0.4527088749455288,
+            0.45950666698627174,
+            0.46812600002158433
+          ]
+        },
+        "medians": {
+          "reference": 0.593808125006035,
+          "candidate": 0.45950666698627174
+        },
+        "speedup": 1.2922731435010402,
+        "output_sha256": {}
+      },
+      {
+        "input": "96000-24.wav",
+        "rate": 96000,
+        "channels": 2,
+        "bits": 24,
+        "frames": 17280000,
+        "mode": "apply",
+        "times": {
+          "reference": [
+            0.7698854999616742,
+            0.7143032499589026,
+            1.0511405420256779,
+            0.7330914170015603,
+            0.7275740830227733
+          ],
+          "candidate": [
+            0.6163770840503275,
+            0.6019228330114856,
+            0.5856382920173928,
+            0.5973947079619393,
+            0.5976988750044256
+          ]
+        },
+        "medians": {
+          "reference": 0.7330914170015603,
+          "candidate": 0.5976988750044256
+        },
+        "speedup": 1.2265229995558085,
+        "output_sha256": {
+          "reference": "eecd19077aed8cdd14e3a496b34d054f86ae5530a4a99315b016851e4661cf1c",
+          "candidate": "eecd19077aed8cdd14e3a496b34d054f86ae5530a4a99315b016851e4661cf1c"
+        }
+      },
+      {
+        "input": "192000-24.wav",
+        "rate": 192000,
+        "channels": 2,
+        "bits": 24,
+        "frames": 34560000,
+        "mode": "analyze",
+        "times": {
+          "reference": [
+            4.08248379197903,
+            4.072570624994114,
+            4.060075499932282,
+            4.053930583060719,
+            4.066740332986228
+          ],
+          "candidate": [
+            3.952046375023201,
+            3.962491875048727,
+            4.026792584103532,
+            3.9470186249818653,
+            3.9458801249274984
+          ]
+        },
+        "medians": {
+          "reference": 4.066740332986228,
+          "candidate": 3.952046375023201
+        },
+        "speedup": 1.029021409942932,
+        "output_sha256": {}
+      },
+      {
+        "input": "192000-24.wav",
+        "rate": 192000,
+        "channels": 2,
+        "bits": 24,
+        "frames": 34560000,
+        "mode": "apply",
+        "times": {
+          "reference": [
+            4.408679749933071,
+            4.332585832918994,
+            4.334228083956987,
+            4.392480124952272,
+            4.44962716603186
+          ],
+          "candidate": [
+            4.350867250002921,
+            4.282196916057728,
+            4.20356516703032,
+            4.217767667025328,
+            4.2509358749957755
+          ]
+        },
+        "medians": {
+          "reference": 4.392480124952272,
+          "candidate": 4.2509358749957755
+        },
+        "speedup": 1.0332971971628804,
+        "output_sha256": {
+          "reference": "107eb099bff0f43ca6500d3066b44d9b3b11c0fabe1c64940ae7828fc5a47229",
+          "candidate": "107eb099bff0f43ca6500d3066b44d9b3b11c0fabe1c64940ae7828fc5a47229"
+        }
+      }
+    ]
+  }
+}

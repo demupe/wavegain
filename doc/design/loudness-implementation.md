@@ -24,15 +24,21 @@ is retained in `vendor/libebur128/R128Net-LICENSE.txt`.
 | --- | --- |
 | Fuse interpolation with peak reduction | Do not write and rescan the full oversampled output buffer |
 | Contiguous, widened history | Prepare small double-precision blocks from the reference float history; avoid a ring-index branch per tap |
-| Independent frames in SIMD lanes | Compute two consecutive interpolation outputs per 128-bit vector on AArch64 and x86_64 |
+| Independent frames in SIMD lanes | Compute two consecutive interpolation outputs per 128-bit vector; use two independent vectors on AArch64 for dense 4x phases |
+| Dense interpolation phases | Validate the 4x coefficient layout and accumulate its three 12-tap phases together, retaining each phase's tap order |
+| Conservative peak screening | Skip a block only when a double-precision triangle-inequality bound, with rounding allowance, cannot raise the current call's peak |
 | Independent channels in SIMD lanes | Apply K-weighting to stereo channels together, retaining each channel's expression order |
 | Narrow the maximum once | Use monotonic float conversion to preserve the reference peak without narrowing every interpolated output |
 | Reuse measurement state | Accumulate the entire track; use one state for LUFS and peak together |
 
 This is an adaptation of the relevant kernels, not a complete translation of
-the C# library. R128Net's float-bound screening and .NET-specific allocation
-layout are not implemented. FMA contraction is disabled for comparison with
-the reference expressions. Denormal handling follows the original native C
+the C# library. R128Net's float partial-filter screening and .NET-specific
+allocation layout are not implemented. The native screen instead uses the
+maximum absolute input (including retained history) times the largest phase
+coefficient L1 norm, with a conservative rounding allowance; uncertain blocks
+still use the exact double calculation. Screening uses the current call's peak
+to preserve `ebur128_prev_true_peak` semantics. FMA contraction is disabled for
+comparison with the reference expressions. Denormal handling follows the original native C
 implementation; cross-architecture bit equality with .NET is not claimed.
 
 Define `WG_EBUR_REFERENCE` to build the original double-input kernels instead.
@@ -53,8 +59,16 @@ only true peak is requested. It still checks finite input, tracks sample peaks,
 uses the same interpolation kernel and drains its tail on completion. This
 also removes unnecessary filtering from final output-ceiling verification.
 It changes only the private adapter path, not the vendored public add-frames
-API. Define `WG_EBUR_EXTRA_REFERENCE` to retain the earlier R128Net-inspired
-implementation without these two additions for incremental comparisons.
+API. Define `WG_EBUR_EXTRA_REFERENCE` to disable these two additions for
+incremental comparisons; later true-peak refinements remain active in that
+variant. `WG_EBUR_REFERENCE` still selects the original native kernels.
+
+The interpolation ring now saves only samples that survive the block's final
+wrap, advancing an index instead of dividing at every sample. The adapter
+specializes mono/stereo packing while retaining finite-input checks. LUFS
+analysis avoids writing the unused ReplayGain-scaled samples back to its
+input buffers; extrema and sequential DC statistics are unchanged. Output
+true-peak verification and its safety reserve remain active.
 
 ### Correctness and performance evidence
 

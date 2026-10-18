@@ -36,6 +36,23 @@ Read these for the mechanism, exact-output checks, rejected alternatives and
 measurement limits. Multiple reports can cover successive incremental changes;
 their speed ratios must not be combined into an unsupported overall claim.
 
+performance/lufs-csharp-refinement-2026-10-18.txt
+performance/lufs-csharp-refinement-2026-10-18.json
+  Repeated C#/native gap analysis: dense interpolation, independent frame
+  scheduling, conservative peak screening and ring/adapter work reduction;
+  exact-output checks and same-real-program analysis/application timings.
+
+performance/macos-arm-optimization-audit-2026-10-18.txt
+performance/macos-arm-optimization-audit-2026-10-18.json
+  Apple Silicon compiler/assembly audit: Windows ARM64-tested audio
+  optimizations are already enabled; isolated stereo-history measurements
+  and standard verified-release exact-output checks.
+
+performance/macos-validation-2026-10-18.txt
+performance/macos-validation-2026-10-18.json
+  Native Apple M1 Pro validation against v1.5.0: core/sanitizer/FFmpeg gates,
+  complete-file equivalence, safety comparisons and matched-flag benchmarks.
+
 performance/stereo-optimization.txt
 performance/stereo-performance-windows.json
   ARM64 stereo filter histories/stage fusion and local peak/DC scans;

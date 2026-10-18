@@ -1,0 +1,197 @@
+C#/R128Net performance gap: repeated native LUFS/True Peak refinement
+Date: 2026-10-18 (Asia/Tokyo)
+Base: de0a68a41086c93c7c1a88bb4f842e29868bc1d6
+Candidate: WaveGain 1.5.1 candidate + the recorded uncommitted refinement
+
+Outcome
+-------
+Four successive mechanisms were investigated and combined while retaining
+native reference arithmetic and complete output-byte equality. No target LUFS,
+peak ceiling, safety reserve, DC policy, dither, sample rate or output-frame
+policy was relaxed. Native final-output true-peak verification remains active.
+The final same-file analysis measurements below bring native performance to
+the vicinity of C# on this real program. Small differences versus C# are not
+an architecture-independent or statistically established universal ranking.
+
+What explains the earlier C# advantage
+--------------------------------------
+Read the pinned R128Net 1.1.2 source (9cc4d4efa05296d3c03bec7ff1e1b218936664e9)
+and the local comparison harness. C# receives interleaved s16/f32 spans
+without WaveGain's planar-double decode/repack cycle. Its interpolation kernel
+recognizes the dense 4x coefficient layout, processes independent outputs
+concurrently, and screens noncompetitive windows before full interpolation.
+It also uses contiguous prepared histories. Native already had paired SIMD,
+fused interpolation/max reduction and stereo energy SIMD; the gap was not
+simply absence of ARM acceleration or a property of C versus C#.
+
+The pre-change native synthetic 60-second CPU timing is roughly 26 ms for
+LUFS alone versus 94 ms for LUFS plus TP, with peak-only around 77 ms. This
+isolates interpolation/history work as a major target, although it is not a
+sampling profiler of the entire CLI. Same-source ablations and the full-file
+measurements below substantiate the mechanisms. C# JIT/runtime overhead and
+native format/validation/statistics work are not identical between programs.
+
+Iteration 1: exploit the actual coefficient layout
+--------------------------------------------------
+Validate factor=4, a single zero-phase tap, and three 12-tap phases with
+indices 0..11. Fuse the three phase accumulators, sharing each input load
+and removing indirect sample-index lookups. Each phase still adds its taps
+in exactly the original order, starting at zero. Other coefficient layouts,
+2x interpolation and non-paired architectures retain their general loops.
+The first isolated five-run comparison improved combined LUFS/TP about
+1.62x and peak-only about 1.95x versus the pre-change kernel. LUFS-only
+and noninterpolated 192 kHz are controls, not beneficiaries of this change.
+
+Iteration 2: schedule independent outputs together
+--------------------------------------------------
+Use two paired vectors (four frames) on AArch64. Six independent phase
+accumulators expose instruction parallelism without reassociation/FMA.
+The two-frame fallback handles short ends and remains the x64 choice to
+avoid assuming AArch64's register budget on x64. An isolated comparison
+improved combined LUFS/TP about 1.05x and peak-only about 1.12x versus the
+first iteration. This is incremental, not another total speedup to multiply
+into an unsupported whole-program estimate.
+
+Iteration 3: reduce redundant adapter work
+------------------------------------------
+Specialize validated mono/stereo packing, retaining finite checks on every
+input sample. During LUFS analysis, do not multiply and rewrite samples into
+ReplayGain's 32767 scale after the LUFS meter has already consumed them.
+Those scaled samples were unused; minimum/maximum and sequential DC sums
+remain unchanged. No raw interleaved input bypass or weaker validation was
+introduced. Exploratory full-f32 medians after these changes were 18.764 s
+before, 12.877 s candidate and 11.098 s C#; this motivated another iteration.
+Those exploratory numbers are distinct from the final isolated series.
+
+Iteration 4: exact screening and final ring contents
+---------------------------------------------------
+A coarse triangle-inequality screen uses maximum absolute block/history
+sample times the largest phase coefficient L1 norm. Allow 128*DBL_EPSILON
+relative margin and DBL_MIN absolute margin for floating-point operations.
+There are at most 12 terms per dense phase; the allowance covers norm,
+product and sequential dot-product rounding. Non-finite magnitudes are not
+screened. A block is skipped only when the resulting upper bound cannot
+raise the current call's peak. The original double calculation handles all
+uncertain blocks, and history always advances. The final float narrowing
+is monotonic, so no winning reference float peak is lost under this bound.
+This is a conservative native bound, not a port of C#'s float partial-head
+screen. Per-call peaks are preserved instead of substituting global peaks.
+
+The ring formerly performed modulo and a store for every incoming sample,
+even when those positions would be overwritten again within the same
+64-frame block. Keep only the last min(block length, delay) samples and
+advance a wrapping index. Build the history with a wrapping index as well.
+This preserves the final ring bits and position, including tiny chunks,
+and avoids per-sample division and redundant writes. It applies to both
+2x and 4x interpolation. The noninterpolated peak-only improvement below
+also includes specialized adapter packing; it is not a ring speedup.
+
+Final kernel comparison (seconds for synthetic 60 s stereo workloads)
+---------------------------------------------------------------------
+  Variant        LUFS     LUFS+TP   Peak only    Peak 192k
+  baseline    0.026260    0.093845    0.076953    0.029840
+     dense    0.026195    0.058003    0.039310    0.030084
+      wide    0.026242    0.054748    0.034949    0.029833
+  noscreen    0.026306    0.052286    0.030780    0.022588
+     final    0.026348    0.055696    0.034470    0.022617
+
+baseline: unchanged native base; dense/wide: first/second iterations.
+noscreen: final adapter/ring/dense implementation with full interpolation
+forced by WG_TP_FULL_INTERPOLATION. final: conservative screening enabled.
+All use matching O2, five rotating runs, CPU time, setup and PCM I/O excluded.
+The continuously loud synthetic workload seldom passes the coarse bound;
+screening therefore adds overhead relative to noscreen. Real-program
+ablation below is why the screen is retained. It is not universally faster.
+WG_TP_PAIR_ONLY forces the two-frame dense path for investigation; neither
+control is a CLI option. Generic original kernels remain WG_EBUR_REFERENCE.
+
+Final full-program analysis (seconds, three rotated runs, medians)
+------------------------------------------------------------------
+Same 510,385,136 frames / 48 kHz stereo / about 177 minutes. Per-format input
+is the same saved file for every implementation; no original-video extraction
+or final encode. Wall time includes process launch and PCM I/O. Timings start
+after correctness jobs finish; no other work from this investigation overlaps.
+Warm caches, no forced flush. Target -18 LUFS, ceiling -2, DC disabled for
+native; C# R128Net 1.1.2 Release, .NET runtime 10.0.1. Native builds use matching
+Apple clang 21 O2 flags. Format conversion work still differs internally.
+
+Format       Before        After           C#   Native speedup
+   f32    19.178587    10.803946    11.295533     1.775x
+   s16    18.681369    10.456250    10.818424     1.787x
+
+The final f32 noscreen median is 12.516180 s; compare directly to
+the final f32 screened median in the table. The paired JSON records all runs,
+not only medians. Small native/C# differences concern this one Mac/work.
+
+Fresh analyze + apply + float W64 output (one run each)
+-------------------------------------------------------
+Full native output TP verification is retained in both native variants;
+C# uses its plan followed by FFmpeg volume and does not perform equivalent
+output verification inside its timer. Common C# output measurements, file
+hashes and deletion are outside all timers. Baseline -> final -> C# order,
+no cache flush; one run is an observation rather than a throughput guarantee.
+
+   Variant      Seconds      Output LUFS    Output dBTP
+  baseline    39.916624    -18.000136898   -3.062132173
+     final    19.152982    -18.000136898   -3.062132173
+    csharp    15.278411    -18.000136898   -3.062132173
+
+Native before/after output files match in their entirety (SHA-256 in JSON).
+All three outputs preserve 510,385,136 frames. The native output verification
+is a material reason application timings cannot be treated as identical-work
+kernel rankings versus C#.
+
+Correctness and review
+-----------------------
+* Debug core and standard O2 make check pass (15 groups, four Windows skips).
+  make verified-release passes, and all four FFmpeg interop groups pass.
+* ASan/UBSan core suite passes. O3/ThinLTO kernels and x64 kernels under
+  Rosetta match their respective native reference bits. The final finite
+  screening eligibility guard was added after the full sanitizer build;
+  a final focused ASan/UBSan oracle also passes on the exact final source,
+  and its hashes are included in the paired JSON.
+* All 1,260 complete output files match the pre-change binary across rates,
+  mono/stereo, integer/float, LUFS/TP, gain/DC, dither, containers and bit depths.
+* The native kernel oracle compares complete filter/ring/gating state and
+  loudness/peaks at 14 rates. Added adversarial per-call/global peak checks
+  cover signed zeros, exponent changes, isolated peaks, neighboring float
+  values and chunks 1/2/3/4/63/64/65/511, across 4x/2x/no interpolation.
+  This guards maxima, tails and history across the newly grouped boundaries.
+* Coefficients, tap order, FP contraction policy, gate decisions and peak
+  rounding remain unchanged. Screening never replaces a competitive value
+  with an approximate result. Generic layouts retain their existing kernel.
+* Existing non-UTF-8 license-comment and obsolete macOS -s warnings remain;
+  no license header was rewritten. No new external dependency is introduced.
+
+Remaining opportunities and scope
+---------------------------------
+A raw-interleaved native measurement path could reduce the decode/repack
+cycle, but would need format/endian/truncation/finite/DC behavior checked
+against the existing reader for all supported inputs. It was not mixed into
+this kernel change. More precise screening could reduce work further but
+would need a new proved bound and adversarial validation; the simpler bound
+here is easier to audit. Full scalar and non-AArch64 backend performance,
+Linux/native Windows/MSVC, other works, sustained workloads and official
+ITU/EBU conformance remain separate validation items.
+
+The original video's extraction/I/O bottleneck and C# tee/pipeline overlap
+are independent of this saved-PCM kernel optimization. No application pipeline,
+service loudness target, production deployment or Issue comment was changed.
+
+Primary code references
+------------------------
+R128Net 1.1.2 pinned source:
+https://github.com/routersys/R128Net/tree/9cc4d4efa05296d3c03bec7ff1e1b218936664e9
+Local implementation record: ../design/loudness-implementation.md
+
+Reproduction and evidence
+--------------------------
+Paired JSON stores matching flags, exact source/binary SHA-256, all timings,
+state-oracle hashes, validation exit statuses and the Python benchmark scripts.
+Build the base commit separately for the before binary; build this recorded
+working tree for the candidate. Media and generated binaries remain outside
+Git. Do not reproduce a final native timing using a newer unrecorded tree.
+
+Publication scope: internal application references are omitted. Numerical
+measurements and source/output hashes are unchanged; complete local investigation
+records are retained separately.

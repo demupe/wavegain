@@ -6,6 +6,7 @@
 #define WG_LOUDNESS_FAST_H
 #include <string.h>
 #include <stdint.h>
+#include <float.h>
 #if (defined(__clang__) || defined(__GNUC__)) && (defined(__aarch64__) || defined(__x86_64__))
 #define WG_METER_PAIR 1
 typedef double wg_vec __attribute__((vector_size(16)));
@@ -48,21 +49,110 @@ static void wg_fast_true_peak(ebur128_state *st, const double *src, size_t frame
 	interpolator *ip = st->d->interp;
 	size_t start;
 	unsigned int ch;
+#ifdef WG_METER_PAIR
+	int dense = 0;
+	double norm = 0.;
+#endif
 	if (!ip) return;
+#ifdef WG_METER_PAIR
+	/* The 4x Hann interpolator has three dense 12-tap phases and one
+	 * single-tap phase. Keep the generic path for every other layout. */
+	if (ip->factor == 4 && ip->filter[0].count == 1 &&
+	    ip->filter[1].count == 12 && ip->filter[2].count == 12 &&
+	    ip->filter[3].count == 12) {
+		unsigned int phase, j;
+		dense = 1;
+		for (phase = 1; phase < 4; phase++)
+			for (j = 0; j < 12; j++)
+				if (ip->filter[phase].index[j] != j) dense = 0;
+		for (phase = 0; phase < 4; phase++) {
+			double sum = 0.;
+			for (j = 0; j < ip->filter[phase].count; j++) sum += fabs(ip->filter[phase].coeff[j]);
+			norm = fmax(norm, sum);
+		}
+	}
+#endif
 	for (start = 0; start < frames; start += 64) {
 		unsigned int n = frames - start > 64 ? 64 : (unsigned int)(frames - start);
 		for (ch = 0; ch < st->channels; ch++) {
 			double history[25 + 64], top = st->d->prev_true_peak[ch];
 			unsigned int j, i, phase;
 			/* The 49-tap 2x/4x interpolators have at most 25 history slots. */
-			for (j = 0; j < ip->delay; j++) history[j] = ip->z[ch][(ip->zi + j) % ip->delay];
+			{
+				unsigned int at = ip->zi;
+				for (j = 0; j < ip->delay; j++) {
+					history[j] = ip->z[ch][at];
+					if (++at == ip->delay) at = 0;
+				}
+			}
 			for (j = 0; j < n; j++) history[ip->delay + j] = (float)src[(start + j) * st->channels + ch];
 			i = 0;
 #ifdef WG_METER_PAIR
+#ifndef WG_TP_FULL_INTERPOLATION
+			if (dense) {
+				double magnitude = 0.;
+				for (j = 0; j < ip->delay + n; j++) {
+					if (!isfinite(history[j])) { magnitude = HUGE_VAL; break; }
+					magnitude = fmax(magnitude, fabs(history[j]));
+				}
+				/* Triangle inequality bounds all phases. The margin covers the
+				 * <=12 positive norm additions, multiply and <=12-tap dot product;
+				 * DBL_MIN also dominates absolute subnormal rounding errors.
+				 * Only skip when even that upper bound cannot raise this call's
+				 * peak. History still advances, and the exact fallback is unchanged. */
+				if (isfinite(magnitude) &&
+				    magnitude * norm * (1. + 128. * DBL_EPSILON) + DBL_MIN <= top) i = n;
+			}
+#endif
 			{
 				wg_vec peaks = {top, top};
+#if defined(__aarch64__) && !defined(WG_TP_PAIR_ONLY)
+				/* Four frames expose independent accumulators without changing
+				 * tap order. Keep the smaller register footprint on x86_64. */
+				if (dense) for (; i + 4 <= n; i += 4) {
+					const double *p = history + ip->delay + i;
+					wg_vec a = {0., 0.}, b = {0., 0.}, c = {0., 0.};
+					wg_vec d = {0., 0.}, e = {0., 0.}, f = {0., 0.};
+					wg_vec zero = {0., 0.}, next_zero = {0., 0.};
+					zero += wg_load(p - ip->filter[0].index[0]) * ip->filter[0].coeff[0];
+					next_zero += wg_load(p + 2 - ip->filter[0].index[0]) * ip->filter[0].coeff[0];
+					for (j = 0; j < 12; j++) {
+						wg_vec input = wg_load(p - j), next = wg_load(p + 2 - j);
+						a += input * ip->filter[1].coeff[j];
+						b += input * ip->filter[2].coeff[j];
+						c += input * ip->filter[3].coeff[j];
+						d += next * ip->filter[1].coeff[j];
+						e += next * ip->filter[2].coeff[j];
+						f += next * ip->filter[3].coeff[j];
+					}
+					peaks = wg_max(peaks, wg_abs(zero));
+					peaks = wg_max(peaks, wg_abs(next_zero));
+					peaks = wg_max(peaks, wg_abs(a));
+					peaks = wg_max(peaks, wg_abs(b));
+					peaks = wg_max(peaks, wg_abs(c));
+					peaks = wg_max(peaks, wg_abs(d));
+					peaks = wg_max(peaks, wg_abs(e));
+					peaks = wg_max(peaks, wg_abs(f));
+				}
+#endif
 				for (; i + 2 <= n; i += 2) {
 					const double *p = history + ip->delay + i;
+					if (dense) {
+						wg_vec a = {0., 0.}, b = {0., 0.}, c = {0., 0.};
+						wg_vec zero = {0., 0.};
+						zero += wg_load(p - ip->filter[0].index[0]) * ip->filter[0].coeff[0];
+						for (j = 0; j < 12; j++) {
+							wg_vec input = wg_load(p - j);
+							a += input * ip->filter[1].coeff[j];
+							b += input * ip->filter[2].coeff[j];
+							c += input * ip->filter[3].coeff[j];
+						}
+						peaks = wg_max(peaks, wg_abs(zero));
+						peaks = wg_max(peaks, wg_abs(a));
+						peaks = wg_max(peaks, wg_abs(b));
+						peaks = wg_max(peaks, wg_abs(c));
+						continue;
+					}
 					for (phase = 0; phase < ip->factor; phase++) {
 						interp_filter *f = &ip->filter[phase];
 						wg_vec value = {0., 0.};
@@ -82,7 +172,16 @@ static void wg_fast_true_peak(ebur128_state *st, const double *src, size_t frame
 			/* Narrow once: rounding to float is monotonic, so the maximum agrees
 			 * with narrowing each individual output before scanning it. */
 			st->d->prev_true_peak[ch] = (float)top;
-			for (j = 0; j < n; j++) ip->z[ch][(ip->zi + j) % ip->delay] = (float)history[ip->delay + j];
+			{
+				/* Earlier writes in a long block would be overwritten in this
+				 * ring. Retain only its final contents, without a divide per sample. */
+				unsigned int first = n > ip->delay ? n - ip->delay : 0;
+				unsigned int at = (ip->zi + first) % ip->delay;
+				for (j = first; j < n; j++) {
+					ip->z[ch][at] = (float)history[ip->delay + j];
+					if (++at == ip->delay) at = 0;
+				}
+			}
 		}
 		ip->zi = (ip->zi + n) % ip->delay;
 	}
