@@ -120,7 +120,7 @@ static int read_gain(FILE *in, wavegain_opt *opt, Uint64_t size)
     if (size != 32 || opt->gain_chunk || fread(scale, 1, 8, in) != 8) return 0;
     bits = get64(scale);
     memcpy(&opt->gain_scale, &bits, sizeof(bits));
-    if (!(opt->gain_scale > 0.0) || opt->gain_scale > 1e100) return 0;
+    if (!valid_gain_scale(opt->gain_scale) || opt->gain_scale > 1e100) return 0;
     opt->gain_chunk = 1;
     return 1;
 }
@@ -210,6 +210,9 @@ int w64_open(FILE *in, wavegain_opt *opt, unsigned char *buf, int len)
             fmt_size = size - 24 > sizeof(fmt) ? sizeof(fmt) : (size_t)(size - 24);
             if (fread(fmt, 1, fmt_size, in) != fmt_size ||
                 !skip64(in, aligned64(size) - 24 - fmt_size)) goto invalid;
+            if ((fmt[0] | (fmt[1] << 8)) == WAVE_FORMAT_EXTENSIBLE &&
+                (fmt_size < 18 || (Uint64_t)(fmt[16] | (fmt[17] << 8)) > size - 24 - 18))
+                goto invalid;
         } else if (!memcmp(header, gain64, 16)) {
             if (!read_gain(in, opt, size)) goto invalid;
         } else if (chunk_is(header, "data")) {

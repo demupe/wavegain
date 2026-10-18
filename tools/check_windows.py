@@ -57,6 +57,8 @@ def main():
                         'dither.c', 'misc.c', 'loudness.c', 'resample.c', 'output.c'],
         'windows_errors': ['test/windows_errors.c', 'misc.c', 'output.c'],
         'output_publish': ['test/output_publish.c'],
+        'command_regressions': ['test/command_regressions.c',
+                                *[p.name for p in sorted(ROOT.glob('*.c')) if p.name != 'main.c']],
     }
     # Windows emulation/scanners can briefly retain an exited executable.
     # A cleanup lock must not prevent the remaining regression tests running.
@@ -65,7 +67,7 @@ def main():
             executable = Path(temp) / (name + '.exe')
             run([compiler, *flags, '-UNDEBUG', '-o', executable, *sources, *libs])
             run([executable])
-    for script in ('todo_regressions', 'review_regressions', 'feature_regressions'):
+    for script in ('todo_regressions', 'review_regressions', 'feature_regressions', 'followup_regressions'):
         python(f'test/{script}.py')
     python('test/windows_paths.py', '--binary', str(binary))
     print('Native Windows check gate passed.', flush=True)

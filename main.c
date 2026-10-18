@@ -24,6 +24,9 @@
 #include <math.h>
 #include <errno.h>
 #include <sys/stat.h>
+#ifndef _WIN32
+#include <unistd.h>
+#endif
 #include "output.h"
 #include "config.h"
 #include "gain_analysis.h"
@@ -196,6 +199,99 @@ static int prepare_outputs(FILE_LIST *list, SETTINGS *settings)
 	return 1;
 }
 
+typedef struct input_identity {
+	int valid;
+#ifdef _WIN32
+	DWORD volume, high, low;
+#else
+	dev_t device;
+	ino_t inode;
+#endif
+} INPUT_IDENTITY;
+
+struct seen_input {
+	struct seen_input *next;
+	char *path;
+	INPUT_IDENTITY original, current;
+};
+
+static void input_identity(const char *path, INPUT_IDENTITY *id)
+{
+	memset(id, 0, sizeof(*id));
+#ifdef _WIN32
+	BY_HANDLE_FILE_INFORMATION info;
+	HANDLE handle = CreateFileA(path, 0, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+	                            NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+	if (handle == INVALID_HANDLE_VALUE) return;
+	if (GetFileInformationByHandle(handle, &info)) {
+		id->valid = 1;
+		id->volume = info.dwVolumeSerialNumber;
+		id->high = info.nFileIndexHigh; id->low = info.nFileIndexLow;
+	}
+	CloseHandle(handle);
+#else
+	struct stat st;
+	if (!stat(path, &st)) { id->valid = 1; id->device = st.st_dev; id->inode = st.st_ino; }
+#endif
+}
+
+static int same_input(const INPUT_IDENTITY *a, const INPUT_IDENTITY *b)
+{
+	if (!a->valid || !b->valid) return 0;
+#ifdef _WIN32
+	return a->volume == b->volume && a->high == b->high && a->low == b->low;
+#else
+	return a->device == b->device && a->inode == b->inode;
+#endif
+}
+
+static void free_seen_inputs(SETTINGS *settings)
+{
+	while (settings->seen_inputs) {
+		struct seen_input *seen = settings->seen_inputs;
+		settings->seen_inputs = seen->next;
+		free(seen->path); free(seen);
+	}
+}
+
+/* Retain both identities: replacing one name can break a hard/symbolic link.
+ * A later batch must recognize the old alias and the newly written name. */
+static int remember_inputs(FILE_LIST *files, SETTINGS *settings)
+{
+	FILE_LIST *file;
+	for (file = files; file; file = file->next_file) {
+		INPUT_IDENTITY id;
+		struct seen_input *seen;
+		char *path;
+		if (!file->filename) continue;
+#ifdef _WIN32
+		path = _fullpath(NULL, file->filename, 0);
+#else
+		path = realpath(file->filename, NULL);
+		if (!path) {
+			char *cwd = getcwd(NULL, 0);
+			path = file->filename[0] == '/' ? strdup(file->filename) :
+				cwd ? wg_output_join(cwd, file->filename) : NULL;
+			free(cwd);
+		}
+#endif
+		if (!path) return 0;
+		input_identity(file->filename, &id);
+		for (seen = settings->seen_inputs; seen; seen = seen->next) {
+			if (!strcmp(path, seen->path) || same_input(&id, &seen->original) || same_input(&id, &seen->current)) {
+				fprintf(stderr, " Duplicate input refused: %s.\n", file->filename);
+				free(path); return 0;
+			}
+		}
+		seen = calloc(1, sizeof(*seen));
+		if (!seen) { free(path); return 0; }
+		seen->path = path; seen->original = seen->current = id;
+		seen->next = settings->seen_inputs;
+		settings->seen_inputs = file->seen = seen;
+	}
+	return 1;
+}
+
 int process_files(FILE_LIST* file_list, SETTINGS* settings, const char* dir __attribute__((unused)))
 {
 	FILE_LIST* file;
@@ -209,7 +305,7 @@ int process_files(FILE_LIST* file_list, SETTINGS* settings, const char* dir __at
 	if (file_list == NULL)
 		return 0;
 
-	if (!prepare_outputs(file_list, settings)) return -1;
+	if (!remember_inputs(file_list, settings) || !prepare_outputs(file_list, settings)) return -1;
 	settings->first_file = 1;
 	total_samples = 0.;
 
@@ -227,6 +323,7 @@ int process_files(FILE_LIST* file_list, SETTINGS* settings, const char* dir __at
 				failed = 1;
 				continue;
 			}
+			input_identity(file->filename, &file->seen->current);
 		}
 	}
 	else {
@@ -269,12 +366,12 @@ int process_files(FILE_LIST* file_list, SETTINGS* settings, const char* dir __at
         }
 
 		if (!settings->no_offset && settings->adc) {
-			int dc_l = (int)(album_dc_offset[0] * 32768 * -1);
-			int dc_r = (int)(album_dc_offset[1] * 32768 * -1);
-			fprintf(stderr, " ********************* Album DC Offset | %4d  |  %4d  | ***************\n",
+			double dc_l = trunc(album_dc_offset[0] * -32768.) + 0.;
+			double dc_r = trunc(album_dc_offset[1] * -32768.) + 0.;
+			fprintf(stderr, " ********************* Album DC Offset | %4.0f  |  %4.0f  | ***************\n",
 				dc_l, dc_r);
 			if(write_to_log) {
-				write_log(" ********************* Album DC Offset | %4d  |  %4d  | ***************\n",
+				write_log(" ********************* Album DC Offset | %4.0f  |  %4.0f  | ***************\n",
 					dc_l, dc_r);
 			}
 		}
@@ -335,6 +432,7 @@ int process_files(FILE_LIST* file_list, SETTINGS* settings, const char* dir __at
                     fprintf(stderr, " Error processing GAIN for file - %s\n", file->filename);
                     failed = 1;
                 }
+				input_identity(file->filename, &file->seen->current);
             }
         }
 	}
@@ -346,7 +444,7 @@ int process_files(FILE_LIST* file_list, SETTINGS* settings, const char* dir __at
 #ifdef _WIN32
 	if (settings->cmd) { 	/* execute user command */
 		FILE_LIST* file;
-		char buff[MAX_PATH];
+		char *buff;
 		char *b, *p, *q;
 		double track_scale = 1.0;
 
@@ -361,7 +459,8 @@ int process_files(FILE_LIST* file_list, SETTINGS* settings, const char* dir __at
 
 			if (dir[0] == '.' && dir[1] == '\\') dir += 2;
 
-			strcpy(buff, file->filename);
+			buff = strdup(file->filename);
+			if (!buff) { failed = 1; break; }
 			b = (buff[0] == '.' && buff[1] == '\\') ? buff+2 : buff;
 			SetEnvironmentVariable("INPUT_FILE", b);
 
@@ -387,11 +486,12 @@ int process_files(FILE_LIST* file_list, SETTINGS* settings, const char* dir __at
 			SetEnvironmentVariable("TRACK_NEW_PEAK", ftos(file->track_peak, "%.0lf"));
 			SetEnvironmentVariable("TRACK_PEAK", ftos(file->track_peak / track_scale, "%.0lf"));
 
-			SetEnvironmentVariable("DC_OFFSET_L", ftos((int)(file->dc_offset[0]*(-32768)), "%.0lf"));
-			SetEnvironmentVariable("DC_OFFSET_R", ftos((int)(file->dc_offset[1]*(-32768)), "%.0lf"));
+			SetEnvironmentVariable("DC_OFFSET_L", ftos(trunc(file->dc_offset[0] * -32768.) + 0., "%.0lf"));
+			SetEnvironmentVariable("DC_OFFSET_R", ftos(trunc(file->dc_offset[1] * -32768.) + 0., "%.0lf"));
 
 			fprintf(stderr, "\n Executing command on \"%s\":\n\n", file->filename);
 			system(settings->cmd);
+			free(buff);
 		}
 	}
 #endif
@@ -466,6 +566,64 @@ static const struct option long_options[] = {
 #define ARG_STRING "harqpcxywsolf:nd:tg:b:e:"
 #endif
 
+
+#ifdef _WIN32
+/* system() uses cmd.exe; reject oversized commands before constructing them. */
+static char *build_command(const char *program, int argc, char **argv)
+{
+	const size_t limit = 8191;
+	const char *name = program;
+	char *full = NULL, *short_name = NULL, *command = NULL, *p;
+	DWORD needed, written;
+	size_t length, name_length;
+	int quote, i;
+	if (strlen(program) > limit) return NULL;
+	needed = GetFullPathNameA(program, 0, NULL, NULL);
+	if (needed) {
+		if (needed > 32768 || !(full = malloc(needed))) goto done;
+		written = GetFullPathNameA(program, needed, full, NULL);
+		if (!written || written >= needed) goto done;
+		needed = GetShortPathNameA(full, NULL, 0);
+		if (needed) {
+			if (needed > 32768 || !(short_name = malloc(needed))) goto done;
+			written = GetShortPathNameA(full, short_name, needed);
+			if (!written || written >= needed) goto done;
+			name = short_name;
+		}
+	}
+	name_length = strlen(name);
+	/* Preserve shell fragments such as "echo hello". Quote actual executable
+	 * paths only; cmd.exe needs an additional enclosing quote pair. */
+	quote = strpbrk(name, " \t") && (name == short_name ||
+		(full && GetFileAttributesA(full) != INVALID_FILE_ATTRIBUTES));
+	if (name_length > limit - 4 * quote) goto done;
+	length = name_length + 4 * quote;
+	for (i = 0; i < argc; i++) {
+		size_t argument = strlen(argv[i]);
+		if (length > limit - 3 || argument > limit - length - 3) goto done;
+		length += argument + 3;
+	}
+	command = malloc(length + 1);
+	if (!command) goto done;
+	p = command;
+	if (quote) *p++ = '"';
+	if (quote) *p++ = '"';
+	memcpy(p, name, name_length); p += name_length;
+	if (quote) *p++ = '"';
+	for (i = 0; i < argc; i++) {
+		size_t argument = strlen(argv[i]);
+		*p++ = ' '; *p++ = '"';
+		memcpy(p, argv[i], argument); p += argument;
+		*p++ = '"';
+	}
+	if (quote) *p++ = '"';
+	*p = 0;
+done:
+	free(full);
+	free(short_name);
+	return command;
+}
+#endif
 
 int main(int argc, char** argv)
 {
@@ -683,30 +841,12 @@ int main(int argc, char** argv)
 				break;
 #ifdef _WIN32
 			case 'e': {
-				char *p;
-				int k;
-				char * lpPart[MAX_PATH]={NULL};
-
-				settings.cmd = (char *) malloc(1024*8); /* 8Kb is XP's limit */
+				free(settings.cmd);
+				settings.cmd = build_command(optarg, argc - optind, argv + optind);
 				if (settings.cmd == NULL) {
-					fprintf(stderr, "Failed to allocate memory for cmd...\n");
+					fprintf(stderr, "Command exceeds the shell limit or cannot be prepared.\n");
 					return 1;
 				}
-
-				p = settings.cmd;
-
-				k = GetFullPathName(argv[optind - 1], 1024*8, p, lpPart);
-				k = GetShortPathName(p, p, MAX_PATH);
-				if (k == 0) {
-					p += sprintf (p, "%s", argv[optind - 1]);
-				} else {
-					p += k;
-				}
-
-				for (k = optind; k < argc; ++k) {
-					p += sprintf(p, " \"%s\"", argv[k]);
-				}
-
 				argc = optind;
 				break;
 			}
@@ -798,6 +938,7 @@ int main(int argc, char** argv)
 #ifdef ENABLE_RECURSIVE
 			if (process_argument(argv[i], &settings) < 0) {
 				free_list(settings.file_list);
+				free_seen_inputs(&settings);
 				return EXIT_FAILURE;
 			}
 #else
@@ -816,5 +957,6 @@ int main(int argc, char** argv)
 
 	free(settings.output_file);
 	free(settings.output_dir);
+	free_seen_inputs(&settings);
 	return (ret < 0) ? EXIT_FAILURE : EXIT_SUCCESS;
 }

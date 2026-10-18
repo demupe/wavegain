@@ -400,6 +400,11 @@ int wav_id(unsigned char *buf, int len)
 	return 1;
 }
 
+int valid_gain_scale(double scale)
+{
+	return scale > 0. && isfinite(scale) && isfinite(1. / scale);
+}
+
 int wav_open(FILE *in, wavegain_opt *opt,
              unsigned char *oldbuf,
              int buflen __attribute__((unused)))
@@ -453,6 +458,8 @@ int wav_open(FILE *in, wavegain_opt *opt,
 	fmt_size = len > (Int64_t)sizeof(buf) ? sizeof(buf) : (size_t)len;
 	if (fread(buf, 1, fmt_size, in) != fmt_size ||
 	    !seek_forward(in, len - (Int64_t)fmt_size + (len & 1))) return 0;
+	if (READ_U16_LE(buf) == WAVE_FORMAT_EXTENSIBLE &&
+	    (fmt_size < 18 || READ_U16_LE(buf + 16) > len - 18)) return 0;
 
 	/* Walk actual chunk boundaries; a gain chunk need not follow fmt. */
 	for (;;) {
@@ -463,8 +470,7 @@ int wav_open(FILE *in, wavegain_opt *opt,
 		if (!memcmp(head, "gain", 4)) {
 			if (len != 8 || opt->gain_chunk || fread(encoded, 1, 8, in) != 8) return 0;
 			opt->gain_scale = READ_D64(encoded);
-			if (!(opt->gain_scale > 0.) || !isfinite(opt->gain_scale) ||
-			    !isfinite(1. / opt->gain_scale)) return 0;
+			if (!valid_gain_scale(opt->gain_scale)) return 0;
 			opt->gain_chunk = 1;
 		} else if (!seek_forward(in, len + (len & 1))) return 0;
 	}
@@ -537,7 +543,9 @@ int setup_wav(FILE *in, wavegain_opt *opt, const unsigned char *buf,
 	format.align = READ_U16_LE(buf+12);
 	format.samplesize = READ_U16_LE(buf+14);
 	if (format.channels < 1 || format.channels > 2 || !format.samplerate) return 0;
-	if (format.format == WAVE_FORMAT_EXTENSIBLE && fmt_size < 40) return 0;
+	if (format.format == WAVE_FORMAT_EXTENSIBLE &&
+	    (fmt_size < 40 || READ_U16_LE(buf + 16) < 22 ||
+	     READ_U16_LE(buf + 18) > format.samplesize)) return 0;
 	if(format.format == WAVE_FORMAT_PCM) {
 		samplesize = format.samplesize/8;
 		opt->read_samples = wav_read;
@@ -565,6 +573,7 @@ int setup_wav(FILE *in, wavegain_opt *opt, const unsigned char *buf,
 			opt->format = samplesize;
 		}
 		else if (memcmp(buf+24, ieee_float_guid, 16) == 0) {
+			if (READ_U16_LE(buf + 18) && READ_U16_LE(buf + 18) != 32) return 0;
 			samplesize = 4;
 			opt->read_samples = wav_ieee_read;
 			opt->endianness = LITTLE;
@@ -597,6 +606,10 @@ int setup_wav(FILE *in, wavegain_opt *opt, const unsigned char *buf,
 			 format.samplesize == 16 || format.samplesize == 8)) {
 		/* OK, good - we have the one supported format,
 		   now we want to find the size of the file */
+		if (len % (format.channels * samplesize)) {
+			fprintf(stderr, "Error: audio data ends with an incomplete PCM frame.\n");
+			return 0;
+		}
 		opt->rate = format.samplerate;
 		opt->channels = format.channels;
 

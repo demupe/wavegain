@@ -95,10 +95,14 @@ check: $(TARGET) check-docs check-filters check-loudness
 	./test/windows_errors
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEFS) $(LDFLAGS) -UNDEBUG -o test/output_publish test/output_publish.c $(LIBS)
 	./test/output_publish
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEFS) $(LDFLAGS) -UNDEBUG -o test/command_regressions test/command_regressions.c $(filter-out main.c,$(SOURCES)) $(LIBS)
+	./test/command_regressions
+	$(RM) test/command_regressions
 	$(RM) test/portability test/wave64 test/review_io test/feature_dsp test/gain_kernel test/windows_errors test/output_publish
 	python3 test/todo_regressions.py
 	python3 test/review_regressions.py
 	python3 test/feature_regressions.py
+	python3 test/followup_regressions.py
 	python3 test/windows_paths.py --binary ./$(TARGET)
 
 docs:

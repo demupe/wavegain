@@ -1,3 +1,22 @@
+Resolved audit findings (2026-10-18; reviewed HEAD 2793ef4):
+Report: doc/review-followup-2026-10-18.txt; observed fixture results in .json.
+- [FIXED] A1: Shared finite/positive/invertible gain-scale validation and an
+    apply-pass check prevent infinite Wave64 Undo scales. Retain its upper bound.
+- [FIXED] A2: Windows -e allocates checked command lengths, validates Win32
+    path lengths, and refuses shell-limit overflow before processing audio.
+    Command environment filenames are dynamically allocated.
+- [FIXED] A3: Invocation-wide input identity/path tracking rejects duplicates
+    before each batch, including aliases of the original and replaced file.
+- [FIXED] A4: Validate effective PCM length against frame size before deriving
+    bounded frame counts; RIFF padding and valid odd mono 8-bit input still work.
+- [FIXED] A5: Album and Windows command DC display use truncated double values
+    without narrowing to int, including large finite float input and log output.
+- [FIXED] A6: Extensible WAV/Wave64 validate extension length and precision;
+    valid left-aligned PCM and unspecified legacy precision remain supported.
+Investigation probes (not gate tests): test/investigate_followup.py and
+test/audit_command_bounds.c. Normal regression gate: test/followup_regressions.py
+and test/command_regressions.c. Details: doc/review-followup-fixes-2026-10-18.txt.
+
 Stereo analysis follow-up (2026-10-18; base 8a9a9f7):
 - [IMPLEMENTED] AArch64 paired IIR histories and immediate second-stage
     filtering retain scalar arithmetic and complete planar output histories.

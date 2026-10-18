@@ -610,6 +610,10 @@ int write_gains(const char *filename, double radio_gain, double audiophile_gain,
 			wg_opts->gain_scale = scale;
 		}
 
+		if (!valid_gain_scale(scale)) {
+			fprintf(stderr, " Error: invalid or non-invertible gain scale.\n");
+			goto exit;
+		}
 		aufile = open_output_audio_file(tempName, wg_opts);
 
 		if (aufile == NULL) {

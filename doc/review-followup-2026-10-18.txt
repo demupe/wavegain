@@ -1,0 +1,143 @@
+Unfixed follow-up audit (2026-10-18)
+===================================
+Historical findings at the HEAD below. All six are addressed in the follow-up;
+see review-followup-fixes-2026-10-18.txt for implementation and verification.
+
+Reviewed HEAD: 2793ef421dd8cb803cc66a26dc6877cf8f6ca0c8.
+Baseline: v1.3.2. Reviewed the intervening 34 non-merge commits, the changed
+file inventory (103 files), TODO, prior review reports and regression tests.
+Focused source inspection covered parsing, batch/album/apply/undo flows,
+Windows commands, output publication, traversal and metering adapters.
+This is a targeted audit, not proof that all remaining code is defect-free.
+
+No production code is changed by this audit. All dynamic tests use synthetic
+fixtures under .benchmark-windows/audit-20261018. Results are in
+review-followup-2026-10-18.json. These findings were not individually listed
+or covered by regression cases in the prior reports inspected here.
+Prior/current byte equality cannot expose a bug shared by both binaries.
+
+A1 [P1] Wave64 Undo accepts a scale whose reciprocal is infinite
+--------------------------------------------------------------
+Locations: w64.c:116-124; wavegain.c:596-600, 138-165.
+Introduced with Wave64 gain support, 7eba45d (2026-10-14).
+read_gain accepts a positive subnormal scale such as 5e-324, checking only
+positivity and an upper bound. The WAV counterpart also checks that 1/scale
+is finite. Wave64 Undo computes an infinite scale and the integer conversion
+saturates the audio instead of rejecting the metadata.
+Confirmed: --undo-gain on the 0.5-second stereo fixture reports +inf dB,
+returns 0 and replaces the input. All 44,100 individual output samples are
+at either positive or negative full scale. This requires unusual/malformed
+gain metadata; ordinary Wave64 gain chunks do not exhibit the issue.
+Recommendation: share finite/positive/invertible scale validation between
+containers; validate the selected apply scale before output creation.
+Regression acceptance: reject the fixture, preserve its bytes, return failure;
+retain successful normal undo behavior for WAV and Wave64.
+
+A2 [P1] Windows -e command construction exceeds its 8 KiB allocation
+-------------------------------------------------------------------
+Locations: main.c:690-707; related fixed path copy main.c:349-365.
+Inherited from v1.3.2; the construction loop remains unchanged.
+malloc(8192) is followed by sprintf appends without remaining-capacity checks.
+GetFullPathName/GetShortPathName length results also need proper validation.
+Confirmed with test/audit_command_bounds.c: a 9,000-character argument causes
+an attempted 9,003-byte write plus NUL at offset 25 of the 8,192-byte object.
+The instrumentation exits 99 BEFORE the invalid write. No audio or external
+command is supplied, and no command is executed. This is a confirmed bounds
+violation in construction, not a claim of an observed exploit or ASan crash.
+An x64 ASan attempt could not initialize under this Windows ARM64 emulation;
+its runtime failure is not used as evidence for the finding.
+Recommendation: checked length calculation and dynamic command allocation,
+enforce the actual shell limit before execution, validate Win32 length APIs,
+and remove the separate MAX_PATH input-name copy limit in the same workflow.
+Regression acceptance: long arguments/path edge cases fail cleanly without
+command execution or writes beyond allocated buffers; short commands work.
+
+A3 [P2] Duplicate input arguments cause multiple gain applications
+----------------------------------------------------------------
+Locations: main.c:103-123, 235-246, 325-337.
+Inherited list insertion from v1.3.2; analysis and apply remain separate passes.
+The list does not deduplicate input files. Both entries are analyzed before
+any write. The second application then uses the first analysis's gain again
+on an already modified file (without a gain chunk that would stop it).
+Confirmed: -y -p -n --force -g -6 once produces sample peak 3,564; passing
+the same pathname twice produces 2,541. Both return 0. This is silent extra
+attenuation, not just duplicated output or unnecessary computation. Album
+statistics can also count repeated input twice.
+Recommendation: detect duplicate inputs before analysis; reject or explicitly
+skip duplicates. Consider resolved names/file identity and document the policy
+for explicit paths mixed with directories/globs and aliases.
+Regression acceptance: repeated literal and equivalent input names never
+cause repeated application. Define how duplicate rejection affects album
+membership; keep distinct files with the same basename usable.
+
+A4 [P2] A partial final PCM frame is silently discarded
+------------------------------------------------------
+Locations: audio.c:613-616, 639-644, 717-722.
+Frame-count flooring is inherited; d513737's bounded-reader change makes
+the floored sample count the stopping point. The per-read remainder check
+cannot see bytes that are never requested.
+Confirmed: a stereo 16-bit WAV with data length 88,201 bytes is accepted.
+-y --force -g -3 returns 0 and replaces it with 88,200 audio bytes, without
+a warning about the incomplete frame. RIFF padding is separate from these
+88,201 declared audio bytes and is not the cause of the remainder.
+Recommendation: validate declared/effective audio length modulo frame size
+before setting bounded sample totals, including IEEE float. Review the same
+setup_wav path used by Wave64. Keep the existing seekable oversized/truncated
+WAV compatibility policy, but distinguish incomplete frames explicitly.
+Regression acceptance: incomplete frames fail before replacement (or require
+an explicit recovery policy); valid odd-size 8-bit data plus padding still works.
+
+A5 [P2] Album DC display still converts an out-of-range double to int
+--------------------------------------------------------------------
+Locations: main.c:272-273; similar Windows -e environment casts :390-391.
+Inherited from v1.3.2. report_gain was made safe, but this separate display
+path still uses int casts. Finite float WAV samples can exceed full scale.
+Confirmed: a 1-second mono float WAV containing 100000.0, with -c -q,
+prints a correct track DC of -3276800000 but an album DC of -2147483648.
+An ARM64 -fsanitize=undefined,float-cast-overflow build exits 1 at main.c:272
+with -3.2768e+09 outside the representable range of int. Ordinary release
+returns 0. The fixture is not modified because this is calculation mode.
+Recommendation: use the existing trunc/double formatting approach in every
+display/environment path, without narrowing to int; handle non-finite sums
+explicitly if such a value can reach a later arithmetic path.
+Regression acceptance: large finite float DC and signed-zero cases are safe
+for track, album, logging and Windows command-environment formatting.
+
+A6 [P3] Extensible WAV valid-bit count is not validated
+------------------------------------------------------
+Locations: audio.c:553-576.
+Inherited from v1.3.2; channel-mask support changed later, but the valid-bit
+field is still ignored. Confirmed: 16-bit containers claiming 24 valid bits
+are accepted by -c with exit 0. This is inconsistent format metadata, not a
+demonstrated corruption of an otherwise valid 20-in-24 PCM stream.
+Microsoft specifies that valid bits must not exceed container bits; source:
+https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ksmedia/ns-ksmedia-waveformatextensible
+Recommendation: validate extension lengths, valid-bit count and channel-mask
+consistency, while retaining correctly left-aligned 20-in-24 and 24-in-32
+input. Define compatibility handling for unspecified legacy extension fields.
+Regression acceptance: reject invalid precision/container combinations and
+verify decoded values for supported lower-precision containers.
+
+Reproduction
+------------
+Use a built Windows executable in the repository root:
+  python test/investigate_followup.py --binary wavegain.exe
+Optionally build root *.c with the native compiler and these added flags:
+  -O2 -g -fsanitize=undefined,float-cast-overflow -fno-sanitize-recover=all
+  -D_FILE_OFFSET_BITS=64 -DHAVE_CONFIG_H -lm
+Then pass the resulting executable to --ubsan.
+For A2, compile test/audit_command_bounds.c with all root *.c EXCEPT main.c,
+adding -I. -D_FILE_OFFSET_BITS=64 -DHAVE_CONFIG_H and -lm. The probe includes
+main.c itself and intercepts only allocations/sprintf in that translation
+unit. Its expected current exit is 99 with the attempted write size above.
+These investigation probes record current bugs; they are not passing tests
+in make check. Convert them to normal regressions alongside each fix.
+
+Previously known items, not counted as new findings
+--------------------------------------------------
+Cross-platform WAV gain-chunk endianness, analysis/dither global state,
+native MSVC/GCC and additional platform tests, official EBU conformance,
+real SMB/cloud coverage and license-header cleanup remain listed in TODO.
+The audit does not reclassify them as newly discovered bugs. The previous
+successful performance/equality gates remain useful, but do not cover the
+new malformed-input, argument-overlap and command-buffer cases above.

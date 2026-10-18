@@ -175,6 +175,7 @@ typedef struct
 } audio_file;
 
 int w64_write_header(audio_file *out, wavegain_opt *opt);
+int valid_gain_scale(double scale);
 int w64_finish(FILE *in, audio_file *out, wavegain_opt *opt);
 audio_file *open_output_audio_file(char *infile, wavegain_opt *opt);
 int write_audio_file(audio_file *aufile, void *sample_buffer, int samples);

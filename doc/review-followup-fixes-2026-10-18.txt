@@ -1,0 +1,87 @@
+Audit follow-up implementation (2026-10-18; base 2793ef4)
+=======================================================
+
+All six findings in review-followup-2026-10-18.txt are addressed. Its JSON
+records the original observations and is retained as historical evidence.
+
+A1: audio.c valid_gain_scale checks positivity, finiteness and a finite
+reciprocal. Both WAV and Wave64 readers use it. Wave64 keeps its previous
+1e100 upper bound. write_gains also checks its chosen scale before opening
+output, so invalid metadata cannot become an infinite apply/undo scale.
+
+A2: Windows -e uses checked length calculation and allocates its actual
+command size; commands exceeding 8191 bytes are refused before processing
+audio. Win32 path-query/fill return lengths are checked, with separate
+buffers for full and short names. Existing shell fragments and argument
+text are retained; executable names with spaces receive cmd.exe's enclosing
+quote pair. Environment-variable filenames use strdup rather than MAX_PATH
+strcpy. Parsing an attached -e argument also uses optarg correctly.
+
+A3: main.c tracks absolute paths and filesystem identities for the entire
+invocation, including recursive batches. Windows uses volume/file index;
+POSIX uses device/inode. Inputs are registered before the current batch's
+analysis or output preparation; a duplicate causes failure before that
+batch writes anything. The original ID and the ID after replacement are
+both retained, recognizing aliases even when a previous write broke a
+hard link or replaced a symbolic-link directory entry. Distinct files in
+different directories sharing a basename remain valid.
+This is not a whole-invocation transaction: if a later recursive batch
+contains a repeated input, earlier completed batches remain processed once.
+The repeated batch fails and the exit code is nonzero. No rollback is claimed.
+
+A4: setup_wav rejects effective data length not divisible by frame size
+before flooring the sample count. This covers integer/float WAV/RF64 and
+Wave64 inputs. Existing oversized/truncated seekable-input recovery remains
+available when the effective EOF length contains complete frames. RIFF/Wave64
+padding is distinct from audio bytes; valid odd mono 8-bit data still works.
+
+A5: album display/logging and Windows command DC environment values use
+truncation and double formatting, with positive-zero normalization. They
+never narrow these values to int. Ordinary displayed offsets remain the
+same; large finite float DC no longer invokes undefined float-to-int casts.
+
+A6: extensible formats require at least 40 parsed bytes and cbSize >= 22;
+their declared extension must fit the actual fmt chunk. Valid bits cannot
+exceed container bits, and IEEE float precision must be 32 or unspecified.
+Zero valid bits retain the prior compatibility interpretation (container
+precision). Extra extension bytes are accepted if they fit the real chunk.
+Left-aligned 20-in-24 and 24-in-32 PCM decode exactly like matching ordinary
+PCM containers. Existing channel-mask policy is unchanged: Microsoft permits
+some channel-count/mask-count differences, so a new equality rule is not added.
+Format reference:
+https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ksmedia/ns-ksmedia-waveformatextensible
+
+Regression tests
+----------------
+test/followup_regressions.py is now part of make check and the native Windows
+gate. It checks invalid and ordinary undo scales in both containers, leading
+and trailing Wave64 gain chunks, all partial-frame remainders across supported
+widths, float data, valid odd-length 8-bit input, extension length/precision,
+left-aligned PCM equality, duplicate spellings and hard links, cross-batch
+repeats after replacement, distinct inputs with the same basename, large DC
+logging, Windows command environment values and rejection of long commands.
+Each rejected single-batch rewrite case verifies original bytes are retained.
+
+test/command_regressions.c is also in both gates. It includes main.c with a
+renamed entry point and faults Win32 length APIs/allocation. It checks exact
+shell-length boundaries, argument quoting, shell-fragment preservation,
+executable-path quoting and failures without executing any command. The Python
+Windows test separately executes only the local echo builtin to check the
+large DC environment string. The original audit probes remain outside the gate.
+
+Validation
+----------
+ARM64 O3/ThinLTO full Windows gate and the new follow-up regressions pass.
+ARM64 O2 UBSan with explicit float-cast-overflow and nonrecovering errors
+passes all new follow-up regressions. The 1260-condition normal-input corpus
+matches the preceding optimized executable byte-for-byte in complete outputs.
+The x64 Windows-emulated gate also passes. A command executable in a path
+containing spaces is launched successfully in an additional local probe.
+The final native binary is rebuilt and all six regressions are rerun after
+restoring the legacy Wave64 upper bound. Machine-readable final verification
+is recorded in review-followup-fixes-2026-10-18.json.
+
+No audio coefficients, filter expressions, dither/RNG order, quantizers or
+normal gain/DC arithmetic are changed. No version bump or new CLI option.
+Native GCC/MSVC, POSIX/macOS execution, SMB/cloud file-ID behavior and the
+existing platform/EBU follow-ups remain unvalidated in this environment.

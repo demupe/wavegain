@@ -32,6 +32,7 @@ typedef struct file_list
     double loudness, true_peak;
     WG_METER *meter;
     char *output;
+    struct seen_input *seen;
 } FILE_LIST;
 
 
@@ -39,6 +40,7 @@ typedef struct file_list
 typedef struct settings
 {
     FILE_LIST* file_list;         /**< Files to process (possibly as an album) */
+    struct seen_input *seen_inputs; /**< Invocation-wide duplicate input guard */
 #ifdef ENABLE_RECURSIVE
     char* pattern;                /**< Pattern to match file names against */
     int recursive;

@@ -215,6 +215,13 @@ and HTML manual. Do not edit the option reference below directly.
 Behavior changes
 -------------------------------------------------------------------------------
 Unreleased:
+* Reject non-invertible Wave64 undo scales, incomplete PCM frames and invalid
+  extensible-WAV precision/extension lengths before rewriting input files.
+* Reject repeated inputs (including file-ID aliases) before each processing
+  batch to prevent repeated gain application. Earlier completed batches remain.
+* Windows command construction is bounded by the shell limit, and command
+  environment filenames no longer use a fixed-size copy. Album and command
+  DC displays avoid narrowing large float-audio offsets to integers.
 * ARM64 stereo ReplayGain filters retain paired histories and process both
   stages together. Peak/DC scans retain local accumulators. Filter arithmetic,
   DC summation order and generated audio bytes are preserved.
