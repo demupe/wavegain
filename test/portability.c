@@ -109,6 +109,41 @@ static void check_pcm_decode(void)
 	free(pcm[0]); free(pcm[1]);
 }
 
+static void check_stereo_decode_planes(void)
+{
+	const int samples[] = {0, 32767, -32768, 1, 12345, -23456, -1, 0};
+	const int offsets[] = {0, 1, 4, 5};
+	unsigned int k;
+	int big, reverse;
+	for (big = 0; big <= 1; big++) for (reverse = 0; reverse <= 1; reverse++)
+	for (k = 0; k < sizeof(offsets) / sizeof(offsets[0]); k++) {
+		unsigned char bytes[16];
+		double actual[9], expected[9], *pcm[2];
+		int bases[2] = {reverse ? offsets[k] : 0, reverse ? 0 : offsets[k]};
+		wavfile input = {0};
+		int i, ch;
+		input.channels = 2; input.samplesize = 16;
+		input.bigendian = (short)big; input.bounded = 1; input.totalsamples = 4;
+		input.f = tmpfile(); assert(input.f);
+		for (i = 0; i < 8; i++) {
+			uint16_t bits = (uint16_t)samples[i];
+			bytes[2 * i + big] = (unsigned char)bits;
+			bytes[2 * i + !big] = (unsigned char)(bits >> 8);
+		}
+		assert(fwrite(bytes, 1, sizeof(bytes), input.f) == sizeof(bytes));
+		rewind(input.f);
+		for (i = 0; i < 9; i++) actual[i] = expected[i] = -99.;
+		/* Preserve the original channel-major result even for overlapping planes. */
+		for (ch = 0; ch < 2; ch++) for (i = 0; i < 4; i++)
+			expected[bases[ch] + i] = samples[2 * i + ch] / 32768.;
+		pcm[0] = actual + bases[0]; pcm[1] = actual + bases[1];
+		assert(wav_read(&input, pcm, 4, 0, 0) == 4);
+		assert(!memcmp(actual, expected, sizeof(actual)));
+		assert(wav_read(&input, NULL, 1, 0, 0) == 0);
+		fclose(input.f);
+	}
+}
+
 static void check_large_wav(void)
 {
     /* A sparse 3 GiB WAV requires only a few disk blocks. */
@@ -397,6 +432,7 @@ static void check_large_output(int rf64, unsigned int junk)
 int main(void)
 {
     check_pcm_decode();
+    check_stereo_decode_planes();
     check_pcm(WAV_FMT_24BIT, 3);
     check_pcm(WAV_FMT_32BIT, 4);
     check_gain();

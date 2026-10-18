@@ -674,10 +674,23 @@ long wav_read(void *in, double **buffer, int samples, int fast, Int64_t chunk)
 	/* Select the byte order/width once per block, not once per sample.
 	 * XOR the sign bit before converting to double: this avoids unaligned
 	 * loads, signed shifts and out-of-range unsigned-to-signed conversions.
-	 * All integer values and power-of-two scaling are exact in binary64. */
+	 * All integer values and power-of-two scaling are exact in binary64.
+	 * Decode 16-bit stereo frames together when output planes do not overlap;
+	 * other widths and overlapping planes retain the channel-major loop. */
 #define DECODE_PCM(read, sign, scale) \
 	do { \
-		for (j = 0; j < f->channels; j++) { \
+		uintptr_t left = realsamples ? (uintptr_t)buffer[0] : 0; \
+		uintptr_t right = f->channels == 2 && realsamples ? (uintptr_t)buffer[1] : left; \
+		uintptr_t gap = left > right ? left - right : right - left; \
+		if (sampbyte == 2 && f->channels == 2 && gap >= (size_t)realsamples * sizeof(double)) { \
+			const unsigned char *base = (const unsigned char *)buf; \
+			for (i = 0; i < realsamples; i++) { \
+				const unsigned char *p = base + (size_t)i * sampbyte * 2; \
+				buffer[0][i] = ((double)((read) ^ (sign)) - (double)(sign)) * (scale); \
+				p += sampbyte; \
+				buffer[1][i] = ((double)((read) ^ (sign)) - (double)(sign)) * (scale); \
+			} \
+		} else for (j = 0; j < f->channels; j++) { \
 			const unsigned char *base = (const unsigned char *)buf + j * sampbyte; \
 			for (i = 0; i < realsamples; i++) { \
 				const unsigned char *p = base + (size_t)i * sampbyte * f->channels; \
