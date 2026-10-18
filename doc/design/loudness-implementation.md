@@ -1,5 +1,9 @@
 # Loudness and output feature implementation
 
+Implementation record for features introduced in v1.5.0. Current usage is in
+[README](../../README); remaining work is in [TODO](../../TODO). Measurement
+evidence is kept in [performance/](../performance/).
+
 This branch adds separate output paths, true-peak measurement and ceilings,
 BS.1770 integrated loudness, 176.4/192 kHz input, and an optional rate-aware
 dither family. Existing ReplayGain rates and the legacy dither family retain
@@ -69,7 +73,7 @@ Reproduce the CPU-only benchmark:
 python3 test/loudness_kernels.py --benchmark --output /tmp/loudness-performance.json
 ```
 
-`loudness-kernel-performance.json` records five alternating runs on macOS arm64,
+[loudness-kernel-performance.json](../performance/loudness-kernel-performance.json) records five alternating runs on macOS arm64,
 Apple Clang 21, `-O2`. Each workload is 60 seconds of synthetic stereo samples,
 with state setup and PCM I/O outside the timed interval. Peak-only adapter
 timings include planar-to-interleaved packing and final tail draining.

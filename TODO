@@ -1,5 +1,5 @@
 Resolved audit findings (2026-10-18; reviewed HEAD 2793ef4):
-Report: doc/review-followup-2026-10-18.txt; observed fixture results in .json.
+Report: doc/reviews/review-followup-2026-10-18.txt; observed fixture results in .json.
 - [FIXED] A1: Shared finite/positive/invertible gain-scale validation and an
     apply-pass check prevent infinite Wave64 Undo scales. Retain its upper bound.
 - [FIXED] A2: Windows -e allocates checked command lengths, validates Win32
@@ -15,7 +15,7 @@ Report: doc/review-followup-2026-10-18.txt; observed fixture results in .json.
     valid left-aligned PCM and unspecified legacy precision remain supported.
 Investigation probes (not gate tests): test/investigate_followup.py and
 test/audit_command_bounds.c. Normal regression gate: test/followup_regressions.py
-and test/command_regressions.c. Details: doc/review-followup-fixes-2026-10-18.txt.
+and test/command_regressions.c. Details: doc/reviews/review-followup-fixes-2026-10-18.txt.
 
 Stereo analysis follow-up (2026-10-18; base 8a9a9f7):
 - [IMPLEMENTED] AArch64 paired IIR histories and immediate second-stage
@@ -23,7 +23,7 @@ Stereo analysis follow-up (2026-10-18; base 8a9a9f7):
     Other targets retain the former paired implementation by default.
     Local peak/DC accumulators preserve summation order; extended-evaluation
     targets retain volatile binary64 DC rounding points.
-    See doc/stereo-optimization.txt and doc/stereo-performance-windows.json.
+    See doc/performance/stereo-optimization.txt and doc/performance/stereo-performance-windows.json.
 - [OPEN] Native GCC/MSVC, hardware x64, x87, macOS/Linux and real-music
     throughput validation. Investigate x64 filter register pressure before
     enabling the full-history implementation on that architecture.
@@ -35,7 +35,7 @@ Exact mono filter reuse (2026-10-17; base 31cf06a):
     complete audio-file comparisons pass. Mono analysis is ~1.75x faster
     on Windows ARM64 (O2 and O3/ThinLTO); stereo speed is essentially unchanged.
     Additional mono RMS reuse did not help and was removed. Measurements and
-    platform limits: doc/mono-optimization.txt, mono-performance-windows.json.
+    platform limits: doc/performance/mono-optimization.txt, mono-performance-windows.json.
 - [OPEN] Confirm on native MSVC/GCC, macOS/Linux and hardware x64; measure
     long real-music mono recordings and default release flags on those targets.
 
@@ -45,7 +45,7 @@ Windows directory quality follow-up (2026-10-17; base c1f6d79):
     explicit linked roots remain usable.
 - [FIXED] Output-inside-input checks resolve physical Windows directory paths
     and reject aliases or failed checks. Real junction/alias and output-byte
-    tests are part of the gate. See doc/windows-directory-quality.txt.
+    tests are part of the gate. See doc/reviews/windows-directory-quality.txt.
 - [OPEN] Real SMB/cloud-provider, case-sensitive NTFS and native POSIX checks.
 
 Verified PCM optimization follow-up (2026-10-17; base 44db4a7):
@@ -60,9 +60,9 @@ Verified PCM optimization follow-up (2026-10-17; base 44db4a7):
 - [IMPLEMENTED] Exact integer PCM decode specialization and mirrored high-rate
     FIR history with bitwise oracles; configurable release optimization/LTO;
     ReplayGain and loudness verification use the actual linker flags.
-    See doc/pcm-optimization.txt and doc/pcm-performance-windows.json.
+    See doc/performance/pcm-optimization.txt and doc/performance/pcm-performance-windows.json.
 - [IMPLEMENTED] Native Windows gate runner, prior/current complete output
-    comparison (1,050 conditions), and portable warm-cache benchmark tooling.
+    comparison (now 1,260 conditions), and portable warm-cache benchmark tooling.
 - [FIXED] Windows x64 binary64 subnormal gain-metadata serialization; expanded
     positive/negative subnormal and signed-zero regression coverage.
 - [OPEN] Native GCC/MSVC and macOS/Linux verification of these changes;
@@ -84,17 +84,19 @@ Feature follow-up (unreleased; base v1.4.5):
 - [IMPLEMENTED] Optional rate-aware TPDF/first-order dither family; existing
     F44 family remains the default. Listening evaluation remains open.
 - [IMPLEMENTED] R128Net-inspired C kernel optimizations with native reference
-    equality tests. Details: doc/loudness-implementation.md.
+    equality tests. Details: doc/design/loudness-implementation.md.
 - [IMPLEMENTED] Further native improvements: expression-preserving stereo
     block-energy SIMD and a peak-only adapter bypass for loudness filtering.
     Three-way reference/previous/current equality and CPU benchmarks recorded.
-- [OPEN] Native Windows validation for new output paths and measurement modes.
+- [DONE] New output paths and measurement modes pass the Windows ARM64 native
+    gate and Windows-emulated x64 gate. Native MSVC/GCC, hardware x64 and
+    SMB/cloud-specific behavior remain open, as listed above.
 - [OPEN] Evaluate additional R128Net screening/dense-loop optimizations using
     the reference equality gate; synthetic CPU benchmarks are not end-to-end
     throughput claims. No .NET runtime dependency is introduced.
 
 Safety review follow-up: 2026-10-16 (base commit ef3efeb).
-Report: doc/code-review-2026-10-16.md
+Report: doc/reviews/code-review-2026-10-16.md
 Reproduce: make check; make check-sanitize; make check-interop
 
 - [DONE] R1/R7: validate RIFF chunk boundaries before editing headers;
@@ -111,8 +113,8 @@ Reproduce: make check; make check-sanitize; make check-interop
     with a nonzero status. Fault injection and CLI regressions cover these.
 - [IMPLEMENTED, VALIDATION OPEN] R6: exclusive Windows temporary creation
     and replacement via MoveFileExA without pre-deleting the original.
-    Native Windows success, locked-file/permission failures and path tests
-    are still required.
+    Native Windows success and path cases now pass the regression gate.
+    Locked-file/permission failure scenarios still need native validation.
 - [DONE] Serialize clean/build for debug/release/asan under parallel make;
     include UBSan and add make check-sanitize. Restore working directories
     on traversal errors and avoid recursive POSIX directory symlink cycles.
@@ -124,9 +126,9 @@ Reproduce: make check; make check-sanitize; make check-interop
     still reports its encoding warning. License-header cleanup remains open.
 
 Implementation follow-up: 2026-10-14 (base commit 8b224d3).
-Details: doc/todo-fixes.txt
-Historical investigation: doc/todo-investigation.txt / .json
-Current probe results: doc/todo-fixed.json
+Details: doc/reviews/todo-fixes.txt
+Historical investigation: doc/reviews/todo-investigation.txt / .json
+Current probe results: doc/reviews/todo-fixed.json
 Reproduce: make check; make check-interop (requires FFmpeg)
 
 - [DONE] Native 64-bit audio corruption / forced -m32 build.
@@ -154,16 +156,16 @@ Reproduce: make check; make check-interop (requires FFmpeg)
     Build/platform conditions, Wave64, byte-based fast thresholds, quoting,
     case sensitivity and peak/limiter semantics are retained or clarified.
     Runtime checks covered macOS arm64/x86_64 and Linux x86_64; a MinGW-w64
-    build was checked under Wine. Native Windows runtime checks remain a
-    portability follow-up.
+    build was checked under Wine. Later Windows ARM64 native and emulated x64
+    runs are recorded above; MSVC and hardware x64 remain follow-ups.
 - [OPEN] The 'gain' chunk scale is big-endian on macOS (__APPLE__) and
     little-endian elsewhere, so -w files are not portable across them.
 
 - [OPEN] Standard license/copyright headers in all sources.
     Deferred to a separate change: source license notices are unchanged
-    here. Findings are in doc/todo-investigation.txt.
+    here. Findings are in doc/reviews/todo-investigation.txt.
 
-Performance investigation (2026-10-14): doc/conversion-performance.txt
+Performance investigation (2026-10-14): doc/performance/conversion-performance.txt
 - [DONE] Paired stereo ReplayGain filters: expression-preserving SIMD on
     Clang and GCC 5+ for AArch64 and x86_64, with FP contraction disabled in
     the filters so scalar and paired paths are bitwise identical.
@@ -173,7 +175,7 @@ Performance investigation (2026-10-14): doc/conversion-performance.txt
     Kernel/API state, histogram boundaries and unaffected-rate output
     match the scalar reference bit-for-bit on tested builds. Current benchmark
     gives ~1.5x ordinary stereo conversion throughput on macOS arm64.
-    Details and limits: doc/filter-simd-investigation.txt.
+    Details and limits: doc/performance/filter-simd-investigation.txt.
 - [DONE] IEEE float serializer: replace frexp/byte reconstruction with guarded
     binary32 bit copying and an explicit little-endian fallback. Subnormals
     retain their value; signed zeros still serialize as positive zero.
@@ -185,12 +187,12 @@ Performance investigation (2026-10-14): doc/conversion-performance.txt
     mono/stereo WAV/Wave64 conversion/undo checks cover the corrected rate.
 - [DONE] Legacy SSE2 Yule kernel used padding instead of b10. Correct its
     final numerator tap; all-rate impulse/DC/tone checks against long-double
-    reference pass under x86_64 Clang. Native Windows/MSVC execution remains
-    a platform validation follow-up.
+    reference pass under x86_64 Clang, including Windows x64 emulation.
+    Native MSVC and hardware x64 remain platform validation follow-ups.
 - [DONE] Reuse conversion/packing buffers per output file; check allocation,
     byte-count overflow and write failures before replacing the original file.
     Buffer reuse preserves integer packing and gain/dither/RNG arithmetic.
-    See doc/conversion-safe-implementation.txt and conversion-safe-performance.json.
+    See doc/performance/conversion-safe-implementation.txt and conversion-safe-performance.json.
     Overall speed differences remain small in the 96 kHz synthetic benchmark.
 - [OPEN] Profile noise-shaped dither and common-path specialization separately;
     preserve RNG/history/rounding semantics. Compiler flags alone gave only

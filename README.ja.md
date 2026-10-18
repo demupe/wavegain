@@ -94,7 +94,7 @@ DCオフセット補正は既定でトラック単位です。`-q`でアルバ�
 
 MITライセンスのlibebur128を同梱し、R128Netを参考にしたCの最適化、ステレオのブロックエネルギー計算のSIMD化、ピーク測定専用の処理経路を追加しています。libebur128の別途インストールや.NETランタイムは不要です。
 
-実装、ライセンス、性能測定、精度の範囲については[実装・検証レポート](doc/loudness-implementation.md)を参照してください。
+実装、ライセンス、性能測定、精度の範囲については[実装・検証レポート](doc/design/loudness-implementation.md)を参照してください。
 
 ## 対応形式と大容量ファイル
 
@@ -151,7 +151,7 @@ sudo make install prefix=/usr
 
 インストールターゲットはGNU形式の`install`オプションを使用します。macOSでは、ビルドした実行ファイルをPATHの通ったディレクトリへコピーする方法も利用できます。
 
-Windowsでは、MSYS2のMINGW64シェルでMinGW-w64 GCCと同じMakefileを使用するか、`mswindows/`内のプロジェクトファイルを利用できます。MinGWのリリースビルドは`_FORTIFY_SOURCE`用のlibsspを静的リンクし、システムDLLだけに依存します。以前のMinGWビルドはWineで確認されていますが、新しい出力・測定モードのWindows実機検証は未実施です。
+Windowsでは、MSYS2のMINGW64シェルでMinGW-w64 GCCと同じMakefileを使用するか、`mswindows/`内のプロジェクトファイルを利用できます。MinGWのリリースビルドは`_FORTIFY_SOURCE`用のlibsspを静的リンクし、システムDLLだけに依存します。LLVM-MinGW ClangによるWindows ARM64実機では、出力・測定モードを含む回帰テストが通過しています。x64版はWindowsのエミュレーションで確認しており、MSVC・GCCおよびx64実機での検証は残っています。
 
 `debian/`のパッケージ設定は過去のもので、保守されていません。古いdebuild手順には依存せず、ソースからビルドしてください。
 
@@ -176,7 +176,7 @@ Clangでは`make verified-release CC=clang RELEASE_OPT=-O3 LTO_FLAGS=-flto=thin`
 
 Windowsでは`python tools/check_windows.py --cc aarch64-w64-mingw32-clang --optimized`でネイティブの回帰試験を実行できます。`--optimized`を省略すると`-O2`、コンパイラーを`x86_64-w64-mingw32-clang`に変えるとx64向けになります。ARM64上でのx64試験はWindowsのエミュレーションを利用します。
 
-旧版との出力比較には`test/pcm_equivalence.py`、速度と出力一致の同時測定には`tools/benchmark_native.py`を使用できます。どちらも`--reference`と`--candidate`で実行ファイルを指定し、ベンチマークでは`--output timings.json`も指定します。Windowsでは`.exe`を含むパスを指定してください。測定条件と結果は[doc/pcm-optimization.txt](doc/pcm-optimization.txt)に記載しています。
+旧版との出力比較には`test/pcm_equivalence.py`、速度と出力一致の同時測定には`tools/benchmark_native.py`を使用できます。どちらも`--reference`と`--candidate`で実行ファイルを指定し、ベンチマークでは`--output timings.json`も指定します。Windowsでは`.exe`を含むパスを指定してください。測定条件と結果は[doc/performance/pcm-optimization.txt](doc/performance/pcm-optimization.txt)に記載しています。
 
 ## 動作の変更点
 
@@ -249,6 +249,7 @@ DebianパッケージとREADME・Makefileなどの追加資料の著作権表記
 
 - [英語README・全オプション](README)
 - [HTMLマニュアル](doc/manual/index.html)
+- [開発・性能測定・修正履歴の索引](doc/README.txt)
 - [ヘルプの正本](doc/help.json)
 
 日本語版は上記の使い方・動作説明の翻訳です。CLIメッセージと自動生成のオプションリファレンスは英語です。

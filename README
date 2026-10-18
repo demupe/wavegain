@@ -105,7 +105,7 @@ The measurement engine bundles MIT-licensed libebur128 with C optimizations
 inspired by R128Net, plus stereo block-energy SIMD and a peak-only processing
 path. No installed libebur128 or .NET runtime is needed. Implementation,
 licenses, performance measurements and precision limits are documented in
-doc/loudness-implementation.md.
+doc/design/loudness-implementation.md.
 
 Supported formats and large files
 -------------------------------------------------------------------------------
@@ -168,9 +168,10 @@ can also be copied to a directory on your PATH.
 
 Windows builds can use MinGW-w64 GCC in an MSYS2 MINGW64 shell with the same
 Makefile, or the project files in mswindows/. MinGW release builds link libssp
-statically for _FORTIFY_SOURCE and need only system DLLs. Earlier MinGW builds
-were checked under Wine; the new output and measurement modes have not been
-verified on native Windows. Debian packaging in debian/ is historical and
+statically for _FORTIFY_SOURCE and need only system DLLs. Output, measurement
+and regression checks pass on native Windows ARM64 with LLVM-MinGW Clang;
+x64 execution was checked through Windows emulation. Native MSVC/GCC and x64
+hardware remain validation follow-ups. Debian packaging in debian/ is historical and
 unmaintained; build from source rather than relying on the old debuild recipe.
 
 Tests and development
@@ -206,7 +207,11 @@ For release-to-release byte comparisons and repeatable performance measurements:
     python test/pcm_equivalence.py --reference ./wavegain-before --candidate ./wavegain
     python tools/benchmark_native.py --reference ./wavegain-before --candidate ./wavegain --output timings.json
 On Windows, use explicit .exe paths. These checks retain input files; benchmark
-times use warm OS caches. See doc/pcm-optimization.txt for evidence and limits.
+times use warm OS caches. See doc/performance/pcm-optimization.txt for evidence and limits.
+
+Documentation index: doc/README.txt. Implementation records are in doc/design/,
+performance reports and measurements in doc/performance/, and safety reviews
+and fix records in doc/reviews/. Historical evidence is kept with its report.
 
 CLI help and manuals come from doc/help.json. After editing it, run make docs.
 make check-docs verifies the generated README help, help_generated.h, man page

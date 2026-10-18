@@ -46,7 +46,7 @@ manual's prose is retained in an explicitly historical legacy-notes.txt.
 License header cleanup
 ----------------------
 Not part of this change. Source license notices are left as released; the
-analysis in doc/todo-investigation.txt is kept for a separate review.
+analysis in doc/reviews/todo-investigation.txt is kept for a separate review.
 
 Validation
 ----------
