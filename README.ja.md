@@ -176,6 +176,8 @@ Clangでは`make verified-release CC=clang RELEASE_OPT=-O3 LTO_FLAGS=-flto=thin`
 
 Windowsでは`python tools/check_windows.py --cc aarch64-w64-mingw32-clang --optimized`でネイティブの回帰試験を実行できます。`--optimized`を省略すると`-O2`、コンパイラーを`x86_64-w64-mingw32-clang`に変えるとx64向けになります。ARM64上でのx64試験はWindowsのエミュレーションを利用します。
 
+テスト一覧と個別実行の方法は[test/README.txt](test/README.txt)にまとめています。`python test/run_suite.py --list`で一覧、`--only NAME`で指定グループを実行できます。Windowsのビルド用スクリプトに`--ubsan`を追加すると、未定義動作と浮動小数点から整数への変換オーバーフローも検査します。
+
 旧版との出力比較には`test/pcm_equivalence.py`、速度と出力一致の同時測定には`tools/benchmark_native.py`を使用できます。どちらも`--reference`と`--candidate`で実行ファイルを指定し、ベンチマークでは`--output timings.json`も指定します。Windowsでは`.exe`を含むパスを指定してください。測定条件と結果は[doc/performance/pcm-optimization.txt](doc/performance/pcm-optimization.txt)に記載しています。
 
 ## 動作の変更点

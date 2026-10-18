@@ -6,6 +6,7 @@ Start here
 ../README                 Current usage, build/test commands and behavior changes.
 ../README.ja.md           Japanese usage and development guide.
 ../TODO                   Current fix status and remaining work.
+../test/README.txt        Test inventory, subsets, platforms and sanitizer usage.
 manual/index.html         Generated CLI reference.
 help.json                 Canonical option/help definitions; edit this source.
 
@@ -77,6 +78,11 @@ performance/loudness-kernel-performance.json
 
 Safety reviews and fix records
 -----------------------------
+reviews/test-suite-review-2026-10-18.txt
+reviews/test-suite-review-2026-10-18.json
+  Shared test runner, strict failure checks, newly covered boundaries and
+  remaining platform/conformance gaps.
+
 reviews/review-followup-fixes-2026-10-18.txt
 reviews/review-followup-fixes-2026-10-18.json
   Resolution and validation of all six follow-up findings: undo scales,

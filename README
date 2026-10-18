@@ -186,6 +186,8 @@ Tests and development
 Tests cover PCM/float conversion, gain/undo, metadata, malformed files, sparse
 large files (including 5 GiB Wave64), output paths, loudness, true-peak ceilings,
 resampling and dither signal properties. Open validation work is listed in TODO.
+The shared test inventory and individual commands are documented in test/README.txt.
+Use python test/run_suite.py --list to list groups, or --only NAME to select one.
 
 verified-release compares ReplayGain filter state and complete conversion
 output with a scalar build using the same compiler and flags, and removes
@@ -201,6 +203,7 @@ Do not enable fast-math: finite checks and exact filter arithmetic are required.
 On native Windows, run the same regression gate without a POSIX make install:
     python tools/check_windows.py --cc aarch64-w64-mingw32-clang --optimized
 Omit --optimized for -O2, or select x86_64-w64-mingw32-clang for x64.
+Add --ubsan to check undefined behavior and float-to-integer overflow.
 The x64 tests on an ARM64 host execute through Windows emulation.
 
 For release-to-release byte comparisons and repeatable performance measurements:

@@ -38,9 +38,11 @@ def verify(path, channels, bits):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--binary',type=Path,default=ROOT/'wavegain')
+    from test_support import add_binary_argument, resolve_binary
+    add_binary_argument(parser)
     parser.add_argument('--output',type=Path)
     args = parser.parse_args()
+    args.binary = resolve_binary(args.binary)
     report = {'ffmpeg':run(['ffmpeg','-version']).stdout.splitlines()[0],'cases':[]}
     with tempfile.TemporaryDirectory(prefix='wavegain-88200-interop-') as temp:
         folder = Path(temp)

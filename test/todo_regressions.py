@@ -4,13 +4,16 @@ import math
 import os
 from pathlib import Path
 import struct
-import subprocess
 import tempfile
 
-from investigate_todo import GAIN, PROGRESS, run, write_fixture
+from test_support import GAIN, PROGRESS, parse_binary, run_cli, write_fixture
 
 ROOT = Path(__file__).resolve().parents[1]
-BINARY = ROOT / "wavegain"
+BINARY = parse_binary(__doc__)
+
+
+def run(binary, args):
+    return run_cli(binary, args, text=True)
 
 
 def samples(path):
@@ -117,8 +120,7 @@ with tempfile.TemporaryDirectory(prefix="wavegain-todo-regressions-") as temp:
     empty = folder / "empty.wav"
     write_fixture(empty, 44100, 0)
     before = empty.read_bytes()
-    result = subprocess.run([str(BINARY), "-y", str(empty)], capture_output=True, text=True)
-    assert result.returncode == 1
+    result = run_cli(BINARY, ['-y', empty], success=False, text=True)
     assert empty.read_bytes() == before and not PROGRESS.findall(result.stderr)
     # The limiter has documented semantics: its cap stays enabled unless -n.
     source.write_bytes(original)

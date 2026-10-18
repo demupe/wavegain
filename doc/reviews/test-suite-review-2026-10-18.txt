@@ -1,0 +1,89 @@
+Test organization and coverage review (2026-10-18; base 87e12f8)
+==============================================================
+
+Implementation scope: test/build orchestration and regressions only. Audio
+processing, input/output production C sources and CLI options are unchanged.
+The test guide is test/README.txt; test/run_suite.py is the single inventory.
+
+Gaps found and addressed
+-----------------------
+1. Makefile and tools/check_windows.py maintained separate C/Python lists.
+   Both now delegate to a shared, selectable core/interop runner. C test
+   executables use temporary paths; clean also covers the legacy command test.
+   Windows-specific entries are explicit skips on other platforms.
+
+2. Ordinary make check did not compare the actual CLI against the scalar
+   filter implementation, although the Windows runner and verified release
+   did. The shared filter entry always passes --cli and the configured
+   compiler/preprocessor/linker flags. Standalone check-filters now does too.
+
+3. Several scripts hardcoded the root binary or relied on Windows implicitly
+   appending .exe. All core and interop CLI scripts accept an explicit binary.
+   Core scripts use a shared existence/extension resolver. The todo regression
+   gate no longer imports helper code from a historical investigation script.
+
+4. Follow-up rejection tests accepted any nonzero return code. A sanitizer
+   abort or access violation could therefore look like correct rejection.
+   Expected rejections now require exit 1, and sanitizer diagnostics fail even
+   on an otherwise expected exit. Synthetic process-result contracts verify
+   signal, Windows crash-status and recovering-sanitizer rejection. Python -O
+   is refused, with a subprocess contract verifying assertions stay enabled.
+
+5. Windows output publication had only a skip where POSIX fault injection ran.
+   The Windows C branch now verifies real successful publication and a
+   destination appearing after preflight. Both the old destination and the
+   temporary output must retain their bytes on collision.
+
+6. Native in-place replacement failures from real OS restrictions were open.
+   A new Windows CLI group holds a read handle without delete sharing and
+   separately marks an input read-only. Both failures must return 1, preserve
+   the original and retain exactly one complete, byte-correct temporary output.
+   Releasing the restriction and retrying must succeed. This does not establish
+   ACL-denial, network-share or cloud-provider behavior.
+
+7. The two tiny upstream crash/memory WAV fixtures were not in the gate.
+   Copies now undergo calculation and apply; both must fail normally without
+   mutation. No test rewrites the committed fixtures.
+
+8. Optional interop checks covered some stdout cases, but core CLI tests lacked
+   complete stdout/container equality. New tests compare stdout against the
+   file writer for five WAV encodings, AIFF and Wave64, verify input retention,
+   and check the documented small-RIFF behavior of --rf64 with --stdout.
+   Strict incomplete/truncated stdin and complete-frame seekable EOF recovery
+   are checked separately.
+
+9. Cross-batch duplicate tests covered a pathname after replacement, but not
+   a hard link still carrying the original file ID. The new case processes
+   one name, then attempts its original hard-link alias in a later directory
+   batch. The first file must equal one apply, and the alias must remain original.
+
+10. LUFS duration tests covered a short file without the inclusive boundary.
+    New file and stdin cases check 17,639/17,640 frames at 44.1 kHz. Numeric
+    target/ceiling endpoints, just-outside values, NaN/Inf/text and insufficient
+    coarse quantization room are checked independently of duration failure.
+
+Sanitizer orchestration
+----------------------
+make check-sanitize explicitly adds float-cast-overflow. The native Windows
+wrapper adds --ubsan for undefined behavior plus float-cast-overflow with
+nonrecovering errors. The common runner enforces UBSan halt-on-error for
+child programs, including C probes and scripts that compile their own probes.
+
+Verification and remaining gaps
+-------------------------------
+The shared core suite is run on native Windows ARM64 with O2 UBSan and with
+O3/ThinLTO, and on x64 under Windows emulation. Newly added duration/option
+boundaries are also checked with the saved UBSan binary. Machine-readable
+results are in test-suite-review-2026-10-18.json.
+
+FFmpeg and ffprobe are not installed on this host. The interop inventory and
+missing-dependency behavior are checked; the four independent interop groups
+are not claimed to have run. Official EBU test-signal conformance remains
+open; native-reference equality is not a substitute for that external oracle.
+
+POSIX/macOS, native GCC/MSVC, ASan execution on a supported host and hardware
+x64 remain platform follow-ups. make itself is unavailable here; its reduced
+recipe delegates to the same tested runner, but native make execution is not
+claimed. Real ACL denials, SMB/cloud file-ID semantics, case-sensitive NTFS,
+concurrent input replacement and broader parser mutation/fuzzing also remain
+useful validation work. Dither's spectral tests do not replace listening tests.

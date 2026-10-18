@@ -7,9 +7,9 @@ WaveGain applies ReplayGain to wave files by rewriting the PCM data directly (op
 ## Commands
 
 - Build: `make` (= `release`; `release`/`debug`/`asan` run `clean` first, so they always rebuild everything). `make debug` enables `-Wall -Wextra -Wpedantic`; code should stay warning-clean there.
-- Test: `make check` — runs `check-docs`, `check-filters` (`test/filter_regressions.py`), the C tests `test/portability.c` / `test/wave64.c` (compiled with `-UNDEBUG`), then `test/todo_regressions.py`.
+- Test: `make check` — delegates to `test/run_suite.py`, the shared POSIX/Windows inventory. It checks docs, filter/CLI and loudness equivalence, C probes (`-UNDEBUG`), and CLI regressions. See `test/README.txt`; use `--list` or repeat `--only NAME` to select tests.
 - Interop tests: `make check-interop` (needs `ffmpeg`/`ffprobe`; uses `./wavegain` in the repo root).
-- Single test: run the script directly, e.g. `python3 test/riff_interop.py`, `python3 test/todo_regressions.py`. For C tests, copy the compile line from the `check` target in `Makefile`.
+- Single test: run its script with `--binary PATH`, or `python3 test/run_suite.py --only portability --cc gcc`. Interop entries use `--suite interop`. Compiler/CFLAGS/link inputs are supplied through the runner; C link lists live only there.
 - Release build with filter verification: `make verified-release` (deletes the binary on mismatch; `VERIFY_SIMD=auto|0|1`).
 - Regenerate docs: `make docs` (`python3 tools/generate_help.py`).
 - There is no CI; `make check` is the gate.

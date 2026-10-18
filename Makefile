@@ -64,7 +64,7 @@ verified-release:
 # -fsanitize=address,undefined: check memory safety and undefined behavior
 # -fno-omit-frame-pointer: recommended to generate better stack traces on debugging
 #: needed on some platforms to avoid run-time errors without using LD_PRELOAD
-SANITIZER_FLAGS = -g3 -O1 -U_FORTIFY_SOURCE -fsanitize=address,undefined -fno-omit-frame-pointer
+SANITIZER_FLAGS = -g3 -O1 -U_FORTIFY_SOURCE -fsanitize=address,undefined,float-cast-overflow -fno-omit-frame-pointer
 asan: CFLAGS += $(SANITIZER_FLAGS)
 
 check-sanitize:
@@ -80,30 +80,9 @@ install: $(TARGET)
 uninstall:
 	rm -f $(DESTDIR)$(bindir)/$(TARGET)
 
-check: $(TARGET) check-docs check-filters check-loudness
-	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEFS) $(LDFLAGS) -UNDEBUG -o test/portability test/portability.c w64.c $(LIBS)
-	./test/portability
-	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEFS) $(LDFLAGS) -UNDEBUG -o test/wave64 test/wave64.c $(LIBS)
-	./test/wave64
-	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEFS) $(LDFLAGS) -UNDEBUG -o test/review_io test/review_io.c w64.c wavegain.c gain_analysis.c dither.c misc.c loudness.c resample.c output.c $(LIBS)
-	./test/review_io
-	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEFS) $(LDFLAGS) -UNDEBUG -o test/feature_dsp test/feature_dsp.c resample.c $(LIBS)
-	./test/feature_dsp
-	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEFS) $(LDFLAGS) -UNDEBUG -o test/gain_kernel test/gain_kernel.c audio.c w64.c gain_analysis.c dither.c misc.c loudness.c resample.c output.c $(LIBS)
-	./test/gain_kernel
-	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEFS) $(LDFLAGS) -UNDEBUG -o test/windows_errors test/windows_errors.c misc.c output.c $(LIBS)
-	./test/windows_errors
-	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEFS) $(LDFLAGS) -UNDEBUG -o test/output_publish test/output_publish.c $(LIBS)
-	./test/output_publish
-	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEFS) $(LDFLAGS) -UNDEBUG -o test/command_regressions test/command_regressions.c $(filter-out main.c,$(SOURCES)) $(LIBS)
-	./test/command_regressions
-	$(RM) test/command_regressions
-	$(RM) test/portability test/wave64 test/review_io test/feature_dsp test/gain_kernel test/windows_errors test/output_publish
-	python3 test/todo_regressions.py
-	python3 test/review_regressions.py
-	python3 test/feature_regressions.py
-	python3 test/followup_regressions.py
-	python3 test/windows_paths.py --binary ./$(TARGET)
+# Both POSIX and Windows use test/run_suite.py as the single inventory.
+check: $(TARGET)
+	python3 test/run_suite.py --cc "$(CC)" --cflags="$(CPPFLAGS) $(CFLAGS) $(DEFS)" --ldflags="$(LDFLAGS) $(LIBS)" --binary ./$(TARGET)
 
 docs:
 	python3 tools/generate_help.py
@@ -111,20 +90,17 @@ docs:
 check-docs:
 	python3 tools/generate_help.py --check
 
-check-filters:
-	python3 test/filter_regressions.py --cc "$(CC)" --cflags="$(CPPFLAGS) $(CFLAGS)" --ldflags="$(LDFLAGS) $(LIBS)"
+check-filters: $(TARGET)
+	python3 test/filter_regressions.py --cc "$(CC)" --cflags="$(CPPFLAGS) $(CFLAGS) $(DEFS)" --ldflags="$(LDFLAGS) $(LIBS)" --cli ./$(TARGET)
 
 check-loudness:
-	python3 test/loudness_kernels.py --cc "$(CC)" --cflags="$(CPPFLAGS) $(CFLAGS)" --ldflags="$(LDFLAGS) $(LIBS)"
+	python3 test/loudness_kernels.py --cc "$(CC)" --cflags="$(CPPFLAGS) $(CFLAGS) $(DEFS)" --ldflags="$(LDFLAGS) $(LIBS)"
 
 check-interop: $(TARGET)
-	python3 test/wave64_interop.py
-	python3 test/filter_interop.py
-	python3 test/riff_interop.py
-	python3 test/feature_interop.py
+	python3 test/run_suite.py --suite interop --binary ./$(TARGET)
 
 clean:
-	rm -f $(TARGET) test/portability test/wave64 test/review_io test/feature_dsp test/gain_kernel test/windows_errors test/output_publish
+	rm -f $(TARGET) test/portability test/wave64 test/review_io test/feature_dsp test/gain_kernel test/windows_errors test/output_publish test/command_regressions
 
 distclean: clean
 

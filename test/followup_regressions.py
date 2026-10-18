@@ -1,71 +1,18 @@
 """Regression cases for all six findings from the 2026-10-18 audit."""
-import argparse
 import math
 import os
 from pathlib import Path
 import struct
-import subprocess
-import sys
 import tempfile
+from audio_fixtures import fmt, wav, w64, audio
+from test_support import parse_binary, run_cli
 
 ROOT = Path(__file__).resolve().parents[1]
-parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument('--binary', type=Path, default=ROOT / ('wavegain.exe' if os.name == 'nt' else 'wavegain'))
-BIN = parser.parse_args().binary.resolve()
-GUID = bytes.fromhex('0100000000001000800000aa00389b71')
-RIFF64 = bytes.fromhex('726966662e91cf11a5d628db04c10000')
-WAVE64 = bytes.fromhex('77617665f3acd3118cd100c04f8edb8a')
-GAIN64 = bytes.fromhex('48d817e2be96c04ab56a8b46289c71e0')
-
-
-def chunk(tag, data):
-    return tag + struct.pack('<I', len(data)) + data + bytes(len(data) % 2)
-
-
-def fmt(bits=16, channels=2, floating=False, valid=None, cb=22, extra=b''):
-    block = channels * (bits // 8)
-    data = struct.pack('<HHIIHH', 0xfffe if valid is not None else 3 if floating else 1,
-                       channels, 44100, 44100 * block, block, bits)
-    if valid is not None:
-        guid = bytes([3]) + GUID[1:] if floating else GUID
-        data += struct.pack('<HHI', cb, valid, 3 if channels == 2 else 4) + guid + extra
-    return data
-
-
-def wav(pcm, format_bytes=fmt(), gain=None):
-    body = b'WAVE' + chunk(b'fmt ', format_bytes)
-    if gain is not None:
-        body += chunk(b'gain', struct.pack('>d' if sys.platform == 'darwin' else '<d', gain))
-    body += chunk(b'data', pcm)
-    return b'RIFF' + struct.pack('<I', len(body)) + body
-
-
-def chunk64(guid, data):
-    result = guid + struct.pack('<Q', len(data) + 24) + data
-    return result + bytes(-len(result) % 8)
-
-
-def w64(pcm, scale=None, tail=False, format_bytes=fmt()):
-    gain = chunk64(GAIN64, struct.pack('<d', scale)) if scale is not None else b''
-    body = chunk64(b'fmt ' + WAVE64[4:], format_bytes)
-    body += (b'' if tail else gain) + chunk64(b'data' + WAVE64[4:], pcm) + (gain if tail else b'')
-    return RIFF64 + struct.pack('<Q', 40 + len(body)) + WAVE64 + body
-
-
-def audio(data):
-    pos = 12
-    while pos + 8 <= len(data):
-        size = struct.unpack_from('<I', data, pos + 4)[0]
-        if data[pos:pos + 4] == b'data':
-            return data[pos + 8:pos + 8 + size]
-        pos += 8 + size + size % 2
-    raise AssertionError('Missing output audio')
+BIN = parse_binary(__doc__)
 
 
 def run(*args, success=True, stdin=None):
-    result = subprocess.run([str(BIN), *map(str, args)], input=stdin, capture_output=True, timeout=30)
-    assert (result.returncode == 0) == success, (args, result.returncode, result.stderr)
-    return result
+    return run_cli(BIN, args, success=success, input_data=stdin)
 
 
 def rejected(path, data, *args):

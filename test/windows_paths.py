@@ -9,6 +9,7 @@ import struct
 import subprocess
 import tempfile
 import wave
+from test_support import add_binary_argument, check_result, resolve_binary
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -21,12 +22,13 @@ def fixture(path):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--binary', type=Path, default=ROOT / 'wavegain.exe')
+    add_binary_argument(parser)
     parser.add_argument('--case', choices=('all', 'recursion', 'containment'), default='all')
     args = parser.parse_args()
     if os.name != 'nt':
         print('Windows directory-link tests: skipped on POSIX')
         return
+    args.binary = resolve_binary(args.binary)
     with tempfile.TemporaryDirectory(prefix='wavegain-windows-paths-') as temp:
         base = Path(temp).resolve()
         links = []
@@ -47,7 +49,8 @@ def main():
             links.append(link)
 
         def run(*options):
-            return subprocess.run([str(args.binary.resolve()), *map(str, options)], capture_output=True, timeout=15)
+            result = subprocess.run([str(args.binary), *map(str, options)], capture_output=True, timeout=15)
+            return check_result(result, success=result.returncode == 0)
 
         try:
             if args.case in ('all', 'recursion'):

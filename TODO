@@ -1,3 +1,13 @@
+Test organization and coverage (2026-10-18; base 87e12f8):
+- [IMPLEMENTED] Shared core/interop inventory, explicit CLI selection, strict
+    rejection/sanitizer checks, and Windows UBSan mode. Added native publication
+    collisions, sharing-lock/read-only failures, stdout byte equality, legacy
+    malformed fixtures, retained hard-link IDs, LUFS duration and option bounds.
+    Guide: test/README.txt; evidence: doc/reviews/test-suite-review-2026-10-18.txt.
+- [OPEN] FFmpeg interop on a host with ffmpeg/ffprobe; official EBU conformance;
+    POSIX/macOS, GCC/MSVC, ASan and hardware x64; real ACL denials, SMB/cloud,
+    case-sensitive NTFS, concurrent input replacement and parser fuzzing.
+
 Resolved audit findings (2026-10-18; reviewed HEAD 2793ef4):
 Report: doc/reviews/review-followup-2026-10-18.txt; observed fixture results in .json.
 - [FIXED] A1: Shared finite/positive/invertible gain-scale validation and an
@@ -113,8 +123,8 @@ Reproduce: make check; make check-sanitize; make check-interop
     with a nonzero status. Fault injection and CLI regressions cover these.
 - [IMPLEMENTED, VALIDATION OPEN] R6: exclusive Windows temporary creation
     and replacement via MoveFileExA without pre-deleting the original.
-    Native Windows success and path cases now pass the regression gate.
-    Locked-file/permission failure scenarios still need native validation.
+    Native Windows success, path, sharing-lock and read-only failure cases pass
+    the regression gate. Real ACL-denial/SMB/cloud validation remains open.
 - [DONE] Serialize clean/build for debug/release/asan under parallel make;
     include UBSan and add make check-sanitize. Restore working directories
     on traversal errors and avoid recursive POSIX directory symlink cycles.

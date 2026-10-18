@@ -5,21 +5,19 @@ from pathlib import Path
 import re
 import struct
 import stat
-import subprocess
 import tempfile
 import wave
+from test_support import parse_binary, run_cli
 
 ROOT = Path(__file__).resolve().parents[1]
-BINARY = ROOT / 'wavegain'
+BINARY = parse_binary(__doc__)
 GAIN = re.compile(r'Applying Gain of\s*([+-]?[\d.]+) dB')
 LUFS = re.compile(r'Integrated loudness:\s*([+-]?[\d.]+) LUFS')
 
 
 def run(*flags, ok=True, input_data=None):
-    r = subprocess.run([str(BINARY), *map(str, flags)], input=input_data, capture_output=True, timeout=30)
+    r = run_cli(BINARY, flags, success=ok, input_data=input_data)
     text = r.stderr.decode(errors='replace')
-    assert 'Sanitizer' not in text and 'runtime error:' not in text, text
-    assert (r.returncode == 0) == ok, text
     return r, text
 
 
