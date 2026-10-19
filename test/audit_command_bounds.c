@@ -36,7 +36,7 @@ static int audit_sprintf(char *dest, const char *format, ...)
 #define malloc audit_malloc
 #define sprintf audit_sprintf
 #define main wavegain_main
-#include "../main.c"
+#include "../src/main.c"
 #undef main
 #undef sprintf
 #undef malloc

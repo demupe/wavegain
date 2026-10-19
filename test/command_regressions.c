@@ -37,7 +37,7 @@ static DWORD WINAPI command_short(LPCSTR name, LPSTR out, DWORD capacity)
 #define GetShortPathNameA command_short
 #endif
 #define main wavegain_main
-#include "../main.c"
+#include "../src/main.c"
 #undef main
 #ifdef _WIN32
 #undef malloc

@@ -5,11 +5,11 @@ See [README](../../README) for options and behavior, and
 
 ## Engine and licenses
 
-`loudness.c` adapts bundled libebur128 v1.2.6
+`src/loudness.c` adapts bundled libebur128 v1.2.6
 (`67b33abe1558160ed76ada1322329b0e9e058b02`). Its MIT license and BSD queue
 notice are retained under `vendor/libebur128/`.
 
-`loudness_fast.h` adapts mechanisms from MIT-licensed
+`src/loudness_fast.h` adapts mechanisms from MIT-licensed
 [R128Net 1.1.2](https://github.com/routersys/R128Net/tree/9cc4d4efa05296d3c03bec7ff1e1b218936664e9).
 Its notice is `vendor/libebur128/R128Net-LICENSE.txt`. No system libebur128
 or .NET runtime is required.

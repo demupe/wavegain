@@ -5,9 +5,9 @@ Commit: 67b33abe1558160ed76ada1322329b0e9e058b02
 Files: ebur128.c, ebur128.h, COPYING and ebur128/queue/sys/queue.h.
 Local adaptation: include the bundled "queue.h" instead of <sys/queue.h>.
 The MIT license is in COPYING; the BSD queue license is retained in queue.h.
-Compiled through ../../loudness.c; no system library or runtime dependency.
+Compiled through ../../src/loudness.c; no system library or runtime dependency.
 
-Optimized double-input kernels in ../../loudness_fast.h use mechanisms from
+Optimized double-input kernels in ../../src/loudness_fast.h use mechanisms from
 R128Net 1.1.2, commit 9cc4d4efa05296d3c03bec7ff1e1b218936664e9:
 https://github.com/routersys/R128Net
 See R128Net-LICENSE.txt for its MIT copyright and permission notice.

@@ -36,7 +36,7 @@ static DWORD WINAPI diagnostic_format(DWORD flags, LPCVOID source, DWORD code,
 }
 #define vfprintf diagnostic_vfprintf
 #define FormatMessageA diagnostic_format
-#include "../recurse.c"
+#include "../src/recurse.c"
 #undef vfprintf
 #undef FormatMessageA
 

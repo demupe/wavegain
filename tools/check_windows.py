@@ -43,7 +43,7 @@ def main():
         run([sys.executable, script, *options])
 
     binary = ROOT / 'wavegain.exe'
-    run([compiler, *flags, '-o', binary, *sorted(ROOT.glob('*.c')), *libs])
+    run([compiler, *flags, '-o', binary, *sorted((ROOT / 'src').glob('*.c')), *libs])
     python('test/run_suite.py', '--cc', cc_arg, '--cflags=' + shlex.join(flags),
            '--ldflags=' + shlex.join(libs), '--binary', str(binary))
     print('Native Windows check gate passed.', flush=True)

@@ -14,8 +14,8 @@ LIBS     = -lm
 ifneq ($(findstring mingw,$(shell $(CC) -dumpmachine 2>/dev/null)),)
 LIBS    += -Wl,-Bstatic -lssp -Wl,-Bdynamic
 endif
-SOURCES := $(wildcard *.c)
-HEADERS := $(wildcard *.h)
+SOURCES := $(wildcard src/*.c)
+HEADERS := $(wildcard src/*.h)
 VENDOR := $(wildcard vendor/libebur128/*)
 
 prefix   = /usr/local
@@ -71,7 +71,7 @@ check-sanitize:
 	$(MAKE) asan
 	UBSAN_OPTIONS=halt_on_error=1 $(MAKE) check CFLAGS="$(CFLAGS) $(SANITIZER_FLAGS)"
 
-$(TARGET): $(SOURCES) $(HEADERS) $(VENDOR) help_generated.h
+$(TARGET): $(SOURCES) $(HEADERS) $(VENDOR) src/help_generated.h
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEFS) $(LDFLAGS) -o $(TARGET) $(SOURCES) $(LIBS)
 
 install: $(TARGET)

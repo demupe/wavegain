@@ -20,6 +20,7 @@ import struct
 import subprocess
 import tempfile
 import time
+from source_snapshot import revision_sources, working_sources, write_flat_sources
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -239,17 +240,15 @@ def main():
              "limiter24": (24, ["-y", "-o", "--force", "-n", "-g", "12", "-t"])}
     with tempfile.TemporaryDirectory(prefix="wavegain-conversion-bench-") as temp:
         folder = Path(temp)
-        names = subprocess.check_output(["git", "ls-tree", "--name-only", args.ref], cwd=ROOT, text=True).splitlines()
-        original = {name: subprocess.check_output(["git", "show", f"{args.ref}:{name}"], cwd=ROOT)
-                    for name in names if name.endswith((".c", ".h"))}
-        current = {p.name: p.read_bytes() for p in [*ROOT.glob("*.c"), *ROOT.glob("*.h")]}
+        original = revision_sources(args.ref)
+        current = working_sources()
         if "working_tree" in variants:
             report["working_tree_source_sha256"] = hashlib.sha256(b"".join(current[name] for name in sorted(current))).hexdigest()
         binaries = {}
         for name in [*variants, "profile"]:
             build = folder / name; build.mkdir()
             source = current if name == "working_tree" else (instrument(original) if name == "profile" else variant_sources(name, original))
-            for filename, data in source.items(): (build / filename).write_bytes(data)
+            write_flat_sources(build, source, ref=None if name == "working_tree" else args.ref)
             flags = ["-O3"] if name.startswith("O3") else ["-O2"]
             if name == "O3_LTO": flags.append("-flto")
             if args.fp_contract_off: flags.append("-ffp-contract=off")
@@ -305,8 +304,7 @@ int main(void) {
             build = folder / name; binary = folder / ("edge-" + name)
             if not build.exists():
                 build.mkdir()
-                for filename, content in variant_sources(name, original).items():
-                    (build / filename).write_bytes(content)
+                write_flat_sources(build, variant_sources(name, original), ref=args.ref)
             subprocess.run([*cc, "-O2", "-DHAVE_CONFIG_H", "-D_FILE_OFFSET_BITS=64", "-I", str(build), "-o", str(binary),
                             str(edge), str(build / "audio.c"), str(build / "w64.c"), "-lm"], check=True, capture_output=True)
             report["float_edge_bytes"][name] = subprocess.check_output([str(binary)]).hex()

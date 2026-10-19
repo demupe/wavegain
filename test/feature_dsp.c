@@ -5,10 +5,10 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-#include "../resample.h"
-#include "../dither.h"
+#include "../src/resample.h"
+#include "../src/dither.h"
 dither_t Dither;
-#include "../dither.c"
+#include "../src/dither.c"
 
 static double tone_energy(double frequency, int irregular)
 {

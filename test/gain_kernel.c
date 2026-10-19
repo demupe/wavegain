@@ -1,7 +1,7 @@
 /* Differential checks for the branch-free common integer gain path. */
 #include <assert.h>
 #include <float.h>
-#include "../wavegain.c"
+#include "../src/wavegain.c"
 
 int write_to_log;
 char log_file_name[512];

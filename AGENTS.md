@@ -16,7 +16,7 @@ WaveGain applies ReplayGain to wave files by rewriting the PCM data directly (op
 
 ## Architecture
 
-- The Makefile compiles **every `*.c` in the root** into one binary (`$(wildcard *.c)`), so do not leave stray `.c` files there. Always built with `-D_FILE_OFFSET_BITS=64 -DHAVE_CONFIG_H`.
+- Production C sources and headers live in `src/`; the filenames below are relative to it. The Makefile compiles **every `src/*.c`** into one binary (`$(wildcard src/*.c)`), so keep probes under `test/` or `local-research/`. Always built with `-D_FILE_OFFSET_BITS=64 -DHAVE_CONFIG_H`.
 - `main.c`: option parsing (bundled `getopt.c`/`getopt1.c`) into `SETTINGS` (`main.h`), file list handling, and `process_files()` driving the two passes. `recurse.c` handles directory recursion (each folder = one album).
 - `wavegain.c`: `get_gain()` (analysis pass, feeds `gain_analysis.c`), peak/gain selection (`corrected_peak()`, `selected_gain()`), and `write_gains()` (apply pass, with `dither.c`).
 - `gain_analysis.c`: ReplayGain Yule/Butterworth filters, including paired-stereo SIMD paths. Results must be bit-identical to the reference — `check-filters` verifies this; FP contraction/FMA is intentionally disabled.
@@ -30,9 +30,9 @@ WaveGain applies ReplayGain to wave files by rewriting the PCM data directly (op
 
 ## Conventions
 
-- **CLI options and help text come from `doc/help.json`.** After changing options, run `make docs`. It regenerates `help_generated.h`, the help block in `README`, `debian/wavegain.1` and `doc/manual/index.html`. `make check-docs` fails if any of these are stale or if an option is undocumented.
+- **CLI options and help text come from `doc/help.json`.** After changing options, run `make docs`. It regenerates `src/help_generated.h`, the help block in `README`, `debian/wavegain.1` and `doc/manual/index.html`. `make check-docs` fails if any of these are stale or if an option is undocumented.
   - A new option usually touches `doc/help.json`, `main.c`, `main.h`, `wavegain.c` and `audio.c`.
-- Version string: `WAVEGAIN_VERSION` in `main.h`, also in `README`, `debian/wavegain.1` and `doc/manual/index.html`. Release commits are titled `release vX.Y.Z` and contain only that version bump.
+- Version string: `WAVEGAIN_VERSION` in `src/main.h`, also in `README`, `debian/wavegain.1` and `doc/manual/index.html`. Release commits are titled `release vX.Y.Z` and contain only that version bump.
 - There is no CHANGELOG. Record user-visible output differences in the README's "Behavior changes" section, and record open items in `TODO`.
 - Documentation index: `doc/README.txt`. Keep tracked documentation concise: usage, current design contracts and open work. Store detailed investigations, benchmarks/JSON evidence and review histories under gitignored `local-research/` (not distributed with the repository); keep report/data pairs together and preserve recorded measurements. Do not force-add local research or internal information. `doc/help.json` and `doc/manual/` retain their generator-defined paths.
 - `debian/` packaging is outdated. Windows builds use the MSVC project in `mswindows/`.

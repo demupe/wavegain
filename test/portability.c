@@ -11,7 +11,7 @@ static void *checked_realloc(void *ptr, size_t size)
     return realloc(ptr, size);
 }
 #define realloc checked_realloc
-#include "../audio.c"
+#include "../src/audio.c"
 #undef realloc
 
 static void check_pcm(int format, unsigned int bytes)

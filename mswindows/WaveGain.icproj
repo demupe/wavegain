@@ -30,7 +30,7 @@
 			Name="Source Files"
 			>
 			<File
-				RelativePath="..\audio.c"
+				RelativePath="..\src\audio.c"
 				>
 				<FileConfiguration
 					Name="Debug|Win32"
@@ -42,7 +42,7 @@
 				</FileConfiguration>
 			</File>
 			<File
-				RelativePath="..\dither.c"
+				RelativePath="..\src\dither.c"
 				>
 				<FileConfiguration
 					Name="Debug|Win32"
@@ -54,7 +54,7 @@
 				</FileConfiguration>
 			</File>
 			<File
-				RelativePath="..\gain_analysis.c"
+				RelativePath="..\src\gain_analysis.c"
 				>
 				<FileConfiguration
 					Name="Debug|Win32"
@@ -66,7 +66,7 @@
 				</FileConfiguration>
 			</File>
 			<File
-				RelativePath="..\getopt.c"
+				RelativePath="..\src\getopt.c"
 				>
 				<FileConfiguration
 					Name="Debug|Win32"
@@ -78,7 +78,7 @@
 				</FileConfiguration>
 			</File>
 			<File
-				RelativePath="..\getopt1.c"
+				RelativePath="..\src\getopt1.c"
 				>
 				<FileConfiguration
 					Name="Debug|Win32"
@@ -90,19 +90,19 @@
 				</FileConfiguration>
 			</File>
 			<File
-				RelativePath="..\loudness.c"
+				RelativePath="..\src\loudness.c"
 			>
 			</File>
 			<File
-				RelativePath="..\output.c"
+				RelativePath="..\src\output.c"
 			>
 			</File>
 			<File
-				RelativePath="..\resample.c"
+				RelativePath="..\src\resample.c"
 			>
 			</File>
 			<File
-				RelativePath="..\main.c"
+				RelativePath="..\src\main.c"
 				>
 				<FileConfiguration
 					Name="Debug|Win32"
@@ -114,7 +114,7 @@
 				</FileConfiguration>
 			</File>
 			<File
-				RelativePath="..\misc.c"
+				RelativePath="..\src\misc.c"
 				>
 				<FileConfiguration
 					Name="Debug|Win32"
@@ -126,7 +126,7 @@
 				</FileConfiguration>
 			</File>
 			<File
-				RelativePath="..\recurse.c"
+				RelativePath="..\src\recurse.c"
 				>
 				<FileConfiguration
 					Name="Debug|Win32"
@@ -138,7 +138,7 @@
 				</FileConfiguration>
 			</File>
 			<File
-				RelativePath="..\wavegain.c"
+				RelativePath="..\src\wavegain.c"
 				>
 				<FileConfiguration
 					Name="Debug|Win32"

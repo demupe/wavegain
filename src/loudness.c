@@ -9,7 +9,7 @@
 #elif defined(__GNUC__)
 #pragma GCC optimize ("fp-contract=off")
 #endif
-#include "vendor/libebur128/ebur128.c"
+#include "../vendor/libebur128/ebur128.c"
 #include "loudness.h"
 
 

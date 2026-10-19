@@ -176,6 +176,19 @@ unmaintained; build from source rather than relying on the old debuild recipe.
 
 Tests and development
 -------------------------------------------------------------------------------
+Repository layout:
+    src/             Production C sources, headers and generated CLI help
+    test/            Regression tests and audio fixtures
+    tools/           Build, documentation and benchmark utilities
+    vendor/          Bundled libraries and their licenses
+    doc/             Design notes and generated manual
+    mswindows/       Windows project files
+    debian/          Debian packaging
+    local-research/  Ignored local reports, measurements and experiments
+
+Run builds from the repository root; the executable remains ./wavegain
+(wavegain.exe on Windows).
+
     make debug              # build with additional compiler warnings
     make check              # run the regression gate (Python 3 required)
     make check-sanitize     # rebuild and test with ASan/UBSan
@@ -217,7 +230,7 @@ investigations, benchmark data and review histories belong in the gitignored
 local-research/ directory, which is not included in clones or releases.
 
 CLI help and manuals come from doc/help.json. After editing it, run make docs.
-make check-docs verifies the generated README help, help_generated.h, man page
+make check-docs verifies the generated README help, src/help_generated.h, man page
 and HTML manual. Do not edit the option reference below directly.
 
 Behavior changes

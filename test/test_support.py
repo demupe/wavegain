@@ -9,6 +9,7 @@ import subprocess
 import wave
 
 ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / 'src'
 DEFAULT_BINARY = ROOT / ('wavegain.exe' if os.name == 'nt' else 'wavegain')
 PROGRESS = re.compile(r'This file\s+(\S+)% done\s*(?:All files\s+(\S+)% done)?')
 GAIN = re.compile(r'([+-]?[\d.]+) dB\s*\|\s*([\d.]+)\s*\|\s*([\d.]+)\s*\|\s*([\d.]+)')

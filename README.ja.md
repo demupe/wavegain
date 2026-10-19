@@ -157,6 +157,8 @@ Windowsでは、MSYS2のMINGW64シェルでMinGW-w64 GCCと同じMakefileを使�
 
 ## テストと開発
 
+本体のCソース・ヘッダーと生成ヘルプは`src/`、テストと音声サンプルは`test/`、開発ツールは`tools/`、同梱ライブラリーは`vendor/`にまとめています。設計資料は`doc/`、詳細な調査記録はgit管理対象外の`local-research/`に保存します。ビルドは従来どおりリポジトリーのルートで実行し、実行ファイルもルートに生成されます。
+
 | コマンド | 内容 |
 | --- | --- |
 | `make debug` | 追加のコンパイラー警告を有効にしてビルド |
@@ -170,7 +172,7 @@ PCM・浮動小数点変換、ゲインと取り消し、メタデータ、不�
 
 `verified-release`は、同じコンパイラー・フラグで作成したスカラー版とReplayGainのフィルター状態・変換出力を比較し、不一致なら実行ファイルを削除します。`VERIFY_SIMD=auto`が既定で、どちらのバックエンドも許可します。`VERIFY_SIMD=1`はステレオSIMD版、`VERIFY_SIMD=0`はスカラー版を要求します。
 
-CLIヘルプとマニュアルの正本は[doc/help.json](doc/help.json)です。変更後は`make docs`で生成し、`make check-docs`で英語READMEのヘルプ、`help_generated.h`、manページ、HTMLマニュアルの同期を検査します。日本語READMEは手動翻訳のため、オプションや挙動の変更時にはこちらも更新してください。
+CLIヘルプとマニュアルの正本は[doc/help.json](doc/help.json)です。変更後は`make docs`で生成し、`make check-docs`で英語READMEのヘルプ、`src/help_generated.h`、manページ、HTMLマニュアルの同期を検査します。日本語READMEは手動翻訳のため、オプションや挙動の変更時にはこちらも更新してください。
 
 Clangでは`make verified-release CC=clang RELEASE_OPT=-O3 LTO_FLAGS=-flto=thin`で最適化ビルドを検証できます。GCCのLTOは`LTO_FLAGS=-flto`を指定します。通常ビルドは従来どおり`-O2`です。`verified-release`はラウドネス処理と参照実装の一致も検証します。非有限値の検査と演算の正確性を保つため、fast-mathは使用しないでください。
 

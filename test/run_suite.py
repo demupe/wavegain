@@ -7,7 +7,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from test_support import ROOT, DEFAULT_BINARY, resolve_binary
+from test_support import ROOT, SRC, DEFAULT_BINARY, resolve_binary
 
 # Each test's included .c files are intentionally excluded from its link list.
 C_TESTS = {
@@ -21,7 +21,7 @@ C_TESTS = {
     'windows_errors': ['test/windows_errors.c', 'misc.c', 'output.c'],
     'output_publish': ['test/output_publish.c'],
     'command_regressions': ['test/command_regressions.c',
-                            *[p.name for p in sorted(ROOT.glob('*.c')) if p.name != 'main.c']],
+                            *[p.name for p in sorted(SRC.glob('*.c')) if p.name != 'main.c']],
 }
 CLI_TESTS = ('todo_regressions', 'review_regressions', 'feature_regressions',
              'followup_regressions', 'edge_regressions', 'windows_paths', 'windows_files')
@@ -81,8 +81,10 @@ def main():
                 python(f'test/{script}.py', *options)
             elif name in C_TESTS:
                 binary = Path(temp) / (name + ('.exe' if os.name == 'nt' else ''))
+                sources = [source if source.startswith('test/') else str(SRC / source)
+                           for source in C_TESTS[name]]
                 run([*shlex.split(args.cc), *shlex.split(args.cflags), '-UNDEBUG',
-                     '-o', binary, *C_TESTS[name], *shlex.split(args.ldflags)])
+                     '-o', binary, *sources, *shlex.split(args.ldflags)])
                 run([binary])
             else:
                 python(f'test/{name}.py', '--binary', str(resolve_binary(args.binary)))

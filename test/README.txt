@@ -4,6 +4,8 @@ WaveGain test guide
 One inventory, two build entry points
 -------------------------------------
 test/run_suite.py is the canonical test inventory for both platforms.
+Production sources and headers are under ../src/. Tests keep their probes
+here and resolve production link inputs through that directory.
   make check
     Builds the main binary when needed, then runs the core suite with CC,
     CPPFLAGS, CFLAGS, DEFS and linker flags. C checks use -UNDEBUG.

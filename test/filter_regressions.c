@@ -2,7 +2,7 @@
 #include <assert.h>
 #include <stdint.h>
 #include <float.h>
-#include "../gain_analysis.c"
+#include "../src/gain_analysis.c"
 
 #define COUNT 12000
 static double left[COUNT + MAX_ORDER], right[COUNT + MAX_ORDER];

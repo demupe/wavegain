@@ -12,13 +12,14 @@ import tempfile
 import wave
 
 ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / 'src'
 
 def check_cli(args, folder):
     """Compare the built CLI with a scalar build using identical build flags."""
     scalar = folder / 'wavegain-scalar'
     subprocess.run([*shlex.split(args.cc), *shlex.split(args.cflags),
                     '-DHAVE_CONFIG_H', '-DWAVEGAIN_FILTER_SIMD=0', '-DWAVEGAIN_MONO_REUSE=0',
-                    *map(str, sorted(ROOT.glob('*.c'))), '-o', str(scalar),
+                    *map(str, sorted(SRC.glob('*.c'))), '-o', str(scalar),
                     *shlex.split(args.ldflags)], check=True)
     cases = []
     for rate in (44100, 48000, 88200):
@@ -115,14 +116,19 @@ def main():
             print('Legacy SSE2 mono reuse preserves every API-state byte.', flush=True)
         if args.reference_ref:
             reports = {}
+            has_src = subprocess.run(['git', 'cat-file', '-e',
+                                      f'{args.reference_ref}:src/gain_analysis.c'],
+                                     cwd=ROOT, capture_output=True).returncode == 0
+            prefix = 'src/' if has_src else ''
             for variant in ('prior','current'):
                 build = folder / variant
                 (build/'test').mkdir(parents=True)
+                (build/'src').mkdir()
                 (build/'test/filter_regressions.c').write_bytes((ROOT/'test/filter_regressions.c').read_bytes())
                 for name in ('gain_analysis.c','gain_analysis.h','config.h'):
-                    data = (subprocess.check_output(['git','show',f'{args.reference_ref}:{name}'],cwd=ROOT)
-                            if variant == 'prior' else (ROOT/name).read_bytes())
-                    (build/name).write_bytes(data)
+                    data = (subprocess.check_output(['git','show',f'{args.reference_ref}:{prefix}{name}'],cwd=ROOT)
+                            if variant == 'prior' else (SRC/name).read_bytes())
+                    (build/'src'/name).write_bytes(data)
                 binary = build/'probe'
                 subprocess.run([*shlex.split(args.cc),*shlex.split(args.cflags),'-DHAVE_CONFIG_H',
                                 '-UNDEBUG','-DFILTER_COMPATIBILITY_TEST',str(build/'test/filter_regressions.c'),

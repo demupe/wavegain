@@ -18,4 +18,4 @@ local-only and not included in clones or releases. Keep report/data pairs
 together and preserve original measurements when organizing local records.
 
 After editing help.json, run make docs. Run make check-docs to verify the
-README help, help_generated.h, man page and HTML manual are synchronized.
+README help, src/help_generated.h, man page and HTML manual are synchronized.

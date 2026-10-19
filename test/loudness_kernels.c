@@ -5,7 +5,7 @@
 #include <math.h>
 #include <stdint.h>
 #include <time.h>
-#include "../loudness.c"
+#include "../src/loudness.c"
 
 static void emit_state(ebur128_state *s)
 {

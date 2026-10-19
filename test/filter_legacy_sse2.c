@@ -1,7 +1,7 @@
 /* Validate the historical Windows/SSE2 layout independently of new SIMD. */
 #include <assert.h>
 #include <float.h>
-#include "../gain_analysis.c"
+#include "../src/gain_analysis.c"
 #define COUNT 8192
 static double in[COUNT+10], yule[COUNT+10], butter[COUNT+10];
 static long double reference[COUNT+10], filtered[COUNT+10];

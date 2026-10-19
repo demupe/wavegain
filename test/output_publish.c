@@ -8,7 +8,7 @@
 #include <assert.h>
 #include <string.h>
 #include <windows.h>
-#include "../output.c"
+#include "../src/output.c"
 static void write_file(const char *path, const char *text)
 {
 	FILE *out = fopen(path, "wb");
@@ -68,7 +68,7 @@ static int test_rename(const char *, const char *, unsigned int);
 static long test_syscall(long, ...);
 #define syscall test_syscall
 #endif
-#include "../output.c"
+#include "../src/output.c"
 #undef link
 #undef write
 #undef renamex_np
