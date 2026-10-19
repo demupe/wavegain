@@ -401,14 +401,10 @@ typedef double filter_pair __attribute__((vector_size(16)));
 #define PAIR_AT(left, right, offset) \
     ((filter_pair){(left)[offset], (right)[offset]})
 
-/* Twenty paired histories need many vector registers. Use the cached path
- * on AArch64; keep the two-pass path on targets with fewer registers. */
+/* Fusing the stages also benefits x86_64 despite its register pressure.
+ * Keep the two-pass path available for target-specific verification. */
 #ifndef WAVEGAIN_STEREO_HISTORY
-# if defined(__aarch64__)
-#  define WAVEGAIN_STEREO_HISTORY 1
-# else
-#  define WAVEGAIN_STEREO_HISTORY 0
-# endif
+#define WAVEGAIN_STEREO_HISTORY 1
 #endif
 #if !WAVEGAIN_STEREO_HISTORY
 static void

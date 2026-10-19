@@ -44,6 +44,47 @@ static void wg_energy_stereo(ebur128_state *st, size_t frames, double sums[2])
 #endif
 #endif
 
+#if defined(WG_METER_PAIR) && defined(__x86_64__) && \
+    (defined(__clang__) || (defined(__GNUC__) && __GNUC__ >= 5))
+#ifndef WG_TP_AVX2
+#define WG_TP_AVX2 1
+#endif
+#if WG_TP_AVX2 && !defined(WG_TP_PAIR_ONLY)
+#define WG_TP_HAVE_AVX2 1
+#include <immintrin.h>
+/* Only dense 4x interpolation enters this function. Keep the caller and all
+ * other layouts at the baseline ISA, and retain each frame's tap order. */
+__attribute__((target("avx2")))
+static double wg_tp_dense_avx2(const double *src, unsigned int frames,
+	const interpolator *ip, double top)
+{
+	typedef double wg_vec4 __attribute__((vector_size(32)));
+	wg_vec4 peaks = {top, top, top, top};
+	unsigned int i, j;
+	for (i = 0; i < frames; i += 4) {
+		const double *p = src + i;
+		wg_vec4 a = {0., 0., 0., 0.}, b = a, c = a, zero = a, input;
+		memcpy(&input, p - ip->filter[0].index[0], sizeof(input));
+		zero += input * ip->filter[0].coeff[0];
+		for (j = 0; j < 12; j++) {
+			memcpy(&input, p - j, sizeof(input));
+			a += input * ip->filter[1].coeff[j];
+			b += input * ip->filter[2].coeff[j];
+			c += input * ip->filter[3].coeff[j];
+		}
+		peaks = _mm256_max_pd(peaks, _mm256_andnot_pd(_mm256_set1_pd(-0.), zero));
+		peaks = _mm256_max_pd(peaks, _mm256_andnot_pd(_mm256_set1_pd(-0.), a));
+		peaks = _mm256_max_pd(peaks, _mm256_andnot_pd(_mm256_set1_pd(-0.), b));
+		peaks = _mm256_max_pd(peaks, _mm256_andnot_pd(_mm256_set1_pd(-0.), c));
+	}
+	{
+		wg_vec pair = _mm_max_pd(_mm256_castpd256_pd128(peaks), _mm256_extractf128_pd(peaks, 1));
+		return fmax(pair[0], pair[1]);
+	}
+}
+#endif
+#endif
+
 static void wg_fast_true_peak(ebur128_state *st, const double *src, size_t frames)
 {
 	interpolator *ip = st->d->interp;
@@ -71,6 +112,9 @@ static void wg_fast_true_peak(ebur128_state *st, const double *src, size_t frame
 			norm = fmax(norm, sum);
 		}
 	}
+#endif
+#ifdef WG_TP_HAVE_AVX2
+	int use_avx2 = dense && __builtin_cpu_supports("avx2");
 #endif
 	for (start = 0; start < frames; start += 64) {
 		unsigned int n = frames - start > 64 ? 64 : (unsigned int)(frames - start);
@@ -106,9 +150,16 @@ static void wg_fast_true_peak(ebur128_state *st, const double *src, size_t frame
 #endif
 			{
 				wg_vec peaks = {top, top};
-#if defined(__aarch64__) && !defined(WG_TP_PAIR_ONLY)
-				/* Four frames expose independent accumulators without changing
-				 * tap order. Keep the smaller register footprint on x86_64. */
+#ifdef WG_TP_HAVE_AVX2
+				if (use_avx2 && i + 4 <= n) {
+					unsigned int count = (n - i) & ~3u;
+					double peak = wg_tp_dense_avx2(history + ip->delay + i, count, ip, top);
+					peaks = (wg_vec){peak, peak};
+					i += count;
+				}
+#endif
+#if !defined(WG_TP_PAIR_ONLY)
+				/* Four independent frames retain each phase's tap order. */
 				if (dense) for (; i + 4 <= n; i += 4) {
 					const double *p = history + ip->delay + i;
 					wg_vec a = {0., 0.}, b = {0., 0.}, c = {0., 0.};

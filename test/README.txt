@@ -39,8 +39,10 @@ Core coverage (19 test groups on Windows)
 docs                  Generated help/manuals and option documentation.
 support_contracts     Normal rejection vs crash/sanitizer error; Python -O guard.
 filters               All-rate scalar/SIMD/mono/history equivalence and the
+                      two-pass/cached stereo backends, plus
                       actual built CLI's output against a scalar CLI.
-loudness              Three-way native reference/optimized energy/gating/peak checks,
+loudness              Native reference/optimized energy/gating/peak checks,
+                      including two-frame, four-frame and AVX2-disabled builds,
                       including per-call peaks across tiny/64-frame boundaries,
                       signed zeros, changing magnitudes and float neighbors.
 portability           PCM/float serialization, buffers and sparse large WAV/RF64 I/O.
@@ -108,8 +110,9 @@ floating_point_exception.wav and memory_leak.wav are now exercised by edge
 regressions on copies. outsox.wav is retained as a larger manual fixture;
 it is not an independent audio-quality oracle or a core benchmark.
 
-Native macOS ARM64 core, ASan/UBSan and FFmpeg interoperability checks pass;
-dated measurement details are retained locally under ../local-research/.
+Native Windows x64 Clang core checks pass. Native macOS ARM64 core,
+ASan/UBSan and FFmpeg interoperability were previously validated; dated
+measurement details are retained locally under ../local-research/.
 Open validation includes official EBU conformance signals, real SMB/cloud and
-ACL behavior, native GCC/MSVC, Linux execution, hardware x64 throughput,
+ACL behavior, native GCC/MSVC, Linux execution, other x64 CPUs,
 and perceptual dither evaluation. See ../TODO for current open work.

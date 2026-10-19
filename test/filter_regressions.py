@@ -71,7 +71,10 @@ def main():
                          ['-DWAVEGAIN_FILTER_SIMD='+str(int(args.simd == 'on'))])
         if args.expect_simd is not None:
             default_flags.append('-DFILTER_EXPECT_SIMD='+args.expect_simd)
-        for variant, flags in [('scalar',['-DWAVEGAIN_FILTER_SIMD=0', '-DWAVEGAIN_MONO_REUSE=0']),('default',default_flags)]:
+        for variant, flags in [('scalar',['-DWAVEGAIN_FILTER_SIMD=0', '-DWAVEGAIN_MONO_REUSE=0']),
+                               ('default',default_flags),
+                               ('two_pass',['-DWAVEGAIN_STEREO_HISTORY=0']),
+                               ('cached',['-DWAVEGAIN_STEREO_HISTORY=1'])]:
             binary = folder / variant
             subprocess.run([*shlex.split(args.cc), *shlex.split(args.cflags), '-DHAVE_CONFIG_H',
                             '-UNDEBUG', *flags, str(ROOT/'test/filter_regressions.c'),
@@ -82,7 +85,7 @@ def main():
             print(result.stderr,end='',flush=True)
             report['runs'][variant] = {'sha256':hashlib.sha256(path.read_bytes()).hexdigest(),
                                       'bytes':path.stat().st_size,'diagnostic':result.stderr}
-        report['bitwise_equal'] = report['runs']['scalar']['sha256'] == report['runs']['default']['sha256']
+        report['bitwise_equal'] = len({run['sha256'] for run in report['runs'].values()}) == 1
         if not report['bitwise_equal']: raise AssertionError('Optimized and scalar-reference API state/histograms differ')
         macros = subprocess.check_output([*shlex.split(args.cc),*shlex.split(args.cflags),
                                           '-dM','-E','-x','c','-'],input=b'').decode()
@@ -138,7 +141,7 @@ def main():
         if args.cli:
             report['cli_cases'] = check_cli(args, folder)
     if args.output: args.output.write_text(json.dumps(report,indent=2)+'\n')
-    print('Scalar/default filter API output is byte-for-byte identical.')
+    print('Scalar/default/two-pass/cached filter API output is byte-for-byte identical.')
 
 if __name__ == '__main__':
     try:

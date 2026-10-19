@@ -240,6 +240,11 @@ Unreleased:
   physical locations and reject aliases inside input or unverifiable locations.
 * Faster integer PCM input conversion and high-rate analysis FIR history
   traversal preserve the decoded samples and filter accumulation order.
+* Supported Clang/GCC x86_64 builds use fused stereo ReplayGain histories and
+  four-frame true-peak interpolation. Dense 4x interpolation selects AVX2 at
+  runtime when supported; other CPUs and interpolation layouts retain baseline
+  SIMD. Results retain the reference operation order without requiring global
+  AVX2 build flags.
 * Integer gain application without dither/limiting uses a specialized path,
   preserving the legacy quantizer, DC correction and saturation boundaries.
 * Tiny binary64 values in gain metadata serialize correctly on Windows x64.

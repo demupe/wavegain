@@ -22,8 +22,10 @@ or .NET runtime is required.
   gating history rather than averaging track LUFS. Memory grows with duration.
 - SIMD retains each channel/phase's operation order. FP contraction and
   reassociation are disabled; do not build with fast-math.
-- Dense 4x interpolation validates its coefficient layout. AArch64 schedules
-  four independent frames; other layouts retain their general kernel.
+- Dense 4x interpolation validates its coefficient layout. AArch64 and
+  x86_64 schedule four independent frames. On supported x86_64 compilers,
+  runtime CPU detection selects an AVX2 function for this block only; other
+  CPUs use 128-bit SIMD, and other layouts retain their general kernel.
 - Peak screening uses a conservative coefficient-L1/input-magnitude bound
   with rounding allowance. Uncertain blocks use exact interpolation;
   per-call peak semantics and interpolation history remain intact.
@@ -36,6 +38,8 @@ or .NET runtime is required.
 disables stereo-energy SIMD and the peak-only adapter bypass.
 `WG_TP_FULL_INTERPOLATION` disables peak screening; `WG_TP_PAIR_ONLY` selects
 two-frame dense processing. These are compile-time verification controls.
+`WG_TP_AVX2=0` disables AVX2 dispatch without changing the baseline target ISA.
+ReplayGain's `WAVEGAIN_STEREO_HISTORY=0` selects its two-pass SIMD fallback.
 
 Use `make verified-release`, `make check`, `make check-sanitize` and
 `make check-interop` as appropriate. Reference equality does not establish

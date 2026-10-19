@@ -5,9 +5,9 @@ Validation
 ----------
 - Validate official ITU/EBU conformance signals across supported rates and
   channel layouts; native-reference equality alone is not certification.
-- Extend native GCC/MSVC/Linux, Intel Mac and hardware x64 validation.
-  Check extended-precision/x87 rounding and x64 filter register pressure
-  before enabling AArch64-style full stereo histories there.
+- Extend native GCC/MSVC/Linux, Intel Mac and other x64 CPU validation.
+  Check extended-precision/x87 rounding and broaden cached stereo-history
+  and dense AVX2 interpolation measurements beyond Windows x64 Clang.
 - Measure sustained real music, other works and cold-storage performance.
   Conservative peak screening can add overhead on continuously loud signals.
 - Validate real Windows ACL denials, sharing failures, SMB/cloud providers,

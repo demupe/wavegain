@@ -172,6 +172,10 @@ static void benchmark(void)
 int main(int argc, char **argv)
 {
 	(void)argv;
+#ifdef WG_TP_HAVE_AVX2
+	fprintf(stderr, "Dense true peak: runtime AVX2 %s.\n",
+	        __builtin_cpu_supports("avx2") ? "enabled" : "unavailable; using baseline SIMD");
+#endif
 	if (argc > 1) benchmark(); else regression();
 	return 0;
 }
