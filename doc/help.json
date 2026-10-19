@@ -22,7 +22,7 @@
     },
     {
       "condition": "_WIN32",
-      "text": "  -e, --exec Cmd   Execute a command after wavegain.\n                   The following environment variables are available:\n                   INPUT_FILE, INPUT_FDIR, INPUT_RDIR, INPUT_NAME,\n                   TRACK_GAIN, TRACK_PEAK, TRACK_SCALE, TRACK_NEW_PEAK,\n                   ALBUM_GAIN, ALBUM_PEAK, ALBUM_SCALE, ALBUM_NEW_PEAK,\n                   DC_OFFSET_L, DC_OFFSET_R\n"
+      "text": "  -e, --exec Cmd   Execute a command after wavegain.\n                   The following environment variables are available:\n                   INPUT_FILE, INPUT_FDIR, INPUT_RDIR, INPUT_NAME,\n                   TRACK_GAIN, TRACK_PEAK, TRACK_SCALE, TRACK_NEW_PEAK,\n                   ALBUM_GAIN, ALBUM_PEAK, ALBUM_SCALE, ALBUM_NEW_PEAK,\n                   DC_OFFSET_L, DC_OFFSET_R\n                   %VAR% references to these are expanded after cmd.exe\n                   parsing, so file names are never treated as commands.\n                   They do not expand inside pipes. '!' is not allowed.\n"
     },
     {
       "condition": null,
