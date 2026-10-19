@@ -78,6 +78,10 @@ LUFSの測定には400 ms以上の音声が必要です。無音や絶対ゲー�
 
 ### True PeakとDCオフセット
 
+`--true-peak-mode precise`（既定）は385タップ・16倍補間、`--true-peak-mode fast`は全対応レートで49タップ・4倍補間を使用します。どちらもTrue Peakを有効にし、全フレームを解析して出力の再測定にも同じモードを使います。ReplayGain・LUFSの計算精度は変えません。一部だけを解析する既存の`--fast`とは別の機能で、併用はできません。
+
+高速モードの使用例は`wavegain -y --true-peak-mode fast input.wav`です。高速モードではピークの過小評価が0.1 dBの余裕を超える場合があります。高域のピーク精度を重視する用途では`precise`を選んでください。どちらも有限長FIRによる推定であり、あらゆる連続時間波形や後段のサンプルレート変換に対する上限保証ではありません。公式の適合信号による検証は継続課題です。
+
 `--true-peak`はTrue Peak測定を有効にし、既定で-1 dBTPを上限にします。`--peak-ceiling`は上限値を変更し、True Peak測定も有効にします。指定したTrue Peak上限は、`-n`（`--noclip`）でも有効です。
 
 量子化後の出力も再測定し、上限を超えた場合は出力ファイルの公開・置換を行いません。ピーク制限によって目標LUFSに届かない場合があります。`--stdout`では送信済みの音声を取り消せないため、最終検査の失敗は非ゼロの終了コードで通知します。
@@ -151,7 +155,7 @@ sudo make install prefix=/usr
 
 インストールターゲットはGNU形式の`install`オプションを使用します。macOSでは、ビルドした実行ファイルをPATHの通ったディレクトリへコピーする方法も利用できます。
 
-Windowsでは、MSYS2のMINGW64シェルでMinGW-w64 GCCと同じMakefileを使用するか、`mswindows/`内のプロジェクトファイルを利用できます。MinGWのリリースビルドは`_FORTIFY_SOURCE`用のlibsspを静的リンクし、システムDLLだけに依存します。LLVM-MinGW ClangによるWindows ARM64実機では、出力・測定モードを含む回帰テストが通過しています。Windows x64実機でも、手書きアセンブラを含む共有テストを確認しています。MSVC・GCCや他のx64 CPUでの検証は残っています。
+Windowsでは、MSYS2のMINGW64シェルでMinGW-w64 GCCと同じMakefileを使用するか、Visual Studio 2022以降で`mswindows/WaveGain.sln`を開きます。新しいMSVCプロジェクトはC17、Win32/x64、精密な浮動小数点設定に対応します。対応するVS Developer Command Promptから`python tools/check_msvc.py`で共有テストを実行できます。旧`.vcproj`・`.icproj`は過去の設定です。MinGWのリリースビルドは`_FORTIFY_SOURCE`用のlibsspを静的リンクし、システムDLLだけに依存します。他のコンパイラーやCPUでの検証は継続します。
 
 `debian/`のパッケージ設定は過去のもので、保守されていません。古いdebuild手順には依存せず、ソースからビルドしてください。
 
@@ -185,6 +189,14 @@ Windowsでは`python tools/check_windows.py --cc aarch64-w64-mingw32-clang --opt
 旧版との出力比較には`test/pcm_equivalence.py`、速度と出力一致の同時測定には`tools/benchmark_native.py`を使用できます。どちらも`--reference`と`--candidate`で実行ファイルを指定し、ベンチマークでは`--output timings.json`も指定します。Windowsでは`.exe`を含むパスを指定してください。測定にはウォームキャッシュを使用するため、実素材や低速ストレージでの性能を保証するものではありません。詳細な調査記録・計測JSON・レビュー履歴は、Git管理外の`local-research/`で管理します。このフォルダはcloneやリリースには含まれません。
 
 ## 動作の変更点
+
+### 未リリース
+
+- `--true-peak-mode precise|fast`で精度重視（既定・16倍補間）と高速（全レートで4倍補間）を選択できます。True Peak測定を有効にし、出力検証にも同じモードを使います。
+
+- 既定のTrue Peak測定では全レートで385タップ・16倍補間し、高域での過小評価を減らします。ピーク制限時のゲインと出力が変わる場合があります。
+- 高レートReplayGainのFIRでFMAを明示的に無効化し、FMA対応ビルドでもSSE2/AVX2の高速経路を使用します。従来FMAを使っていたFIRの丸めが変わる場合があります。
+- MSVC向けの注釈・精度設定を整備し、Win32/x64対応のプロジェクトとネイティブ回帰テストを追加します。
 
 ### バージョン1.5.1
 

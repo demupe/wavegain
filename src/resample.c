@@ -4,6 +4,16 @@
 #include "resample.h"
 #include "resample_x86.h"
 
+/* Round every FIR product and addition separately, even on FMA targets. */
+#if defined(__clang__)
+#pragma clang fp contract(off)
+#elif defined(__GNUC__)
+#pragma GCC optimize ("fp-contract=off")
+#elif defined(_MSC_VER)
+#pragma float_control(precise, on)
+#pragma fp_contract(off)
+#endif
+
 void wg_decimator_init(WG_DECIMATOR *s, int channels)
 {
 	const double pi = 3.14159265358979323846, cutoff = .225;
@@ -93,8 +103,7 @@ int wg_decimator_process(WG_DECIMATOR *s, double **pcm, int frames)
 					double value = 0.;
 					const double *history = s->history[ch] + cursor + 127;
 					int j;
-					/* Keep the original scalar multiply-add contraction. Vectorizing
-					 * products alone can change rounding on FMA-capable targets. */
+					/* Keep the same tap order and rounding as the assembly FIR. */
 #if defined(__clang__)
 #pragma clang loop vectorize(disable)
 #endif

@@ -82,6 +82,33 @@ static double wg_tp_dense_avx2(const double *src, unsigned int frames,
 		return fmax(pair[0], pair[1]);
 	}
 }
+
+/* The CLI's longer 16x filter has a different phase layout. Parallelize
+ * independent frames, retaining every phase's original accumulation order. */
+__attribute__((target("avx2")))
+static double wg_tp_generic_avx2(const double *src, unsigned int frames,
+	const interpolator *ip, double top)
+{
+	typedef double wg_vec4 __attribute__((vector_size(32)));
+	wg_vec4 peaks = {top, top, top, top};
+	unsigned int i, phase, j;
+	for (i = 0; i < frames; i += 4) {
+		for (phase = 0; phase < ip->factor; phase++) {
+			const interp_filter *f = &ip->filter[phase];
+			wg_vec4 value = {0., 0., 0., 0.};
+			for (j = 0; j < f->count; j++) {
+				wg_vec4 input;
+				memcpy(&input, src + i - f->index[j], sizeof(input));
+				value += input * f->coeff[j];
+			}
+			peaks = _mm256_max_pd(peaks, _mm256_andnot_pd(_mm256_set1_pd(-0.), value));
+		}
+	}
+	{
+		wg_vec pair = _mm_max_pd(_mm256_castpd256_pd128(peaks), _mm256_extractf128_pd(peaks, 1));
+		return fmax(pair[0], pair[1]);
+	}
+}
 #endif
 #endif
 
@@ -114,14 +141,14 @@ static void wg_fast_true_peak(ebur128_state *st, const double *src, size_t frame
 	}
 #endif
 #ifdef WG_TP_HAVE_AVX2
-	int use_avx2 = dense && __builtin_cpu_supports("avx2");
+	int use_avx2 = __builtin_cpu_supports("avx2");
 #endif
 	for (start = 0; start < frames; start += 64) {
 		unsigned int n = frames - start > 64 ? 64 : (unsigned int)(frames - start);
 		for (ch = 0; ch < st->channels; ch++) {
 			double history[25 + 64], top = st->d->prev_true_peak[ch];
 			unsigned int j, i, phase;
-			/* The 49-tap 2x/4x interpolators have at most 25 history slots. */
+			/* Library 2x/4x and CLI 16x interpolators use at most 25 slots. */
 			{
 				unsigned int at = ip->zi;
 				for (j = 0; j < ip->delay; j++) {
@@ -153,7 +180,8 @@ static void wg_fast_true_peak(ebur128_state *st, const double *src, size_t frame
 #ifdef WG_TP_HAVE_AVX2
 				if (use_avx2 && i + 4 <= n) {
 					unsigned int count = (n - i) & ~3u;
-					double peak = wg_tp_dense_avx2(history + ip->delay + i, count, ip, top);
+					double peak = dense ? wg_tp_dense_avx2(history + ip->delay + i, count, ip, top) :
+						wg_tp_generic_avx2(history + ip->delay + i, count, ip, top);
 					peaks = (wg_vec){peak, peak};
 					i += count;
 				}

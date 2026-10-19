@@ -75,6 +75,7 @@ typedef struct settings
     char *output_file, *output_dir;
     const char *output_subdir, *current_output;
     int true_peak, lufs, dither_profile;
+    WG_PEAK_MODE true_peak_mode;
     double peak_ceiling, target_lufs;
 } SETTINGS;
 

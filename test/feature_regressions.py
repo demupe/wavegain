@@ -8,11 +8,13 @@ import stat
 import tempfile
 import wave
 from test_support import parse_binary, run_cli
+from audio_fixtures import audio
 
 ROOT = Path(__file__).resolve().parents[1]
 BINARY = parse_binary(__doc__)
 GAIN = re.compile(r'Applying Gain of\s*([+-]?[\d.]+) dB')
 LUFS = re.compile(r'Integrated loudness:\s*([+-]?[\d.]+) LUFS')
+INPUT_PEAK = re.compile(r'Input true peak after DC correction:\s*([+-]?[\d.]+)')
 
 
 def run(*flags, ok=True, input_data=None):
@@ -28,6 +30,21 @@ def fixture(path, rate=48000, seconds=1., amplitude=.1, dc=0., square=False):
     with wave.open(str(path), 'wb') as f:
         f.setparams((1, 2, rate, 0, 'NONE', 'PCM'))
         f.writeframes(struct.pack(f'<{count}h', *values))
+
+
+def reconstructed_peak(values):
+    """Independent windowed-sinc reconstruction of a stationary interior."""
+    peak, radius, center = 0., 256, len(values) // 2
+    for step in range(5 * 64):
+        t = center + step / 64
+        base, value = int(t), 0.
+        for k in range(base - radius + 1, base + radius + 1):
+            d = t - k
+            sinc = math.sin(math.pi * d) / (math.pi * d) if d else 1.
+            window = .42 + .5 * math.cos(math.pi * d / radius) + .08 * math.cos(2 * math.pi * d / radius)
+            value += values[k] * sinc * window
+        peak = max(peak, abs(value))
+    return peak
 
 
 with tempfile.TemporaryDirectory(prefix='wavegain-features-') as temp:
@@ -106,6 +123,19 @@ with tempfile.TemporaryDirectory(prefix='wavegain-features-') as temp:
     applied = float(GAIN.search(text).group(1))
     assert abs(measured + applied - -23.) < .02, text
     assert 'Output true peak:' in text
+    # Explicit precise is the default, while fast changes only peak measurement.
+    source_bytes = source.read_bytes()
+    for quality in ('precise', 'fast'):
+        target = folder / f'lufs-{quality}.wav'
+        _, selected = run('-y', '--lufs', '--true-peak-mode', quality, '--output', target, source)
+        assert f'True-peak mode: {quality}' in selected
+        assert LUFS.search(selected).group(1) == LUFS.search(text).group(1)
+        assert target.read_bytes() == (folder / 'lufs.wav').read_bytes()
+        _, direct = run('--lufs', '--true-peak-mode', quality, '-p', source)
+        _, piped = run('--lufs', '--true-peak-mode', quality, '-p', '-', input_data=source_bytes)
+        assert INPUT_PEAK.search(direct).group(1) == INPUT_PEAK.search(piped).group(1)
+        assert LUFS.search(direct).group(1) == LUFS.search(piped).group(1)
+    assert source.read_bytes() == source_bytes
     # Fs/4 signal has a substantial inter-sample peak; cap must attenuate it.
     fixture(source, amplitude=.8, square=True)
     _, text = run('-y', '-p', '-n', '--true-peak', '--target-lufs', '-5',
@@ -113,12 +143,38 @@ with tempfile.TemporaryDirectory(prefix='wavegain-features-') as temp:
     assert float(GAIN.search(text).group(1)) < -1., text
     actual_peak = float(re.search(r'Output true peak:\s*([+-]?[\d.]+)', text).group(1))
     assert actual_peak <= -2., text
+    # Self-meter equality alone cannot expose interpolation under-read.
+    for rate, frequency, phase in ((48000, .4, 0.), (96000, .25, math.pi / 8),
+                                   (192000, .25, math.pi / 4)):
+        count = max(8192, rate // 10)
+        values = [round(32767 * .7 * min(1., i / 512., (count - 1 - i) / 512.) *
+                        math.sin(2 * math.pi * frequency * i + phase)) for i in range(count)]
+        with wave.open(str(source), 'wb') as f:
+            f.setparams((1, 2, rate, 0, 'NONE', 'PCM'))
+            f.writeframes(struct.pack(f'<{count}h', *values))
+        target = folder / f'independent-peak-{rate}.wav'
+        run('-y', '-p', '-n', '-g', '12', '--peak-ceiling', '-1', '-b', '5',
+            '--output', target, source)
+        pcm = audio(target.read_bytes())
+        values = struct.unpack(f'<{len(pcm) // 4}f', pcm)
+        assert reconstructed_peak(values) <= 10 ** (-1 / 20), rate
+        fast_target = folder / f'fast-peak-{rate}.wav'
+        _, fast_text = run('-y', '-p', '-n', '-g', '12', '--peak-ceiling', '-1',
+                           '--true-peak-mode', 'fast', '-b', '5', '--output', fast_target, source)
+        assert float(re.search(r'Output true peak:\s*([+-]?[\d.]+)', fast_text).group(1)) <= -1.
+        # Compare a file calculation with the apply path and corrected-DC path.
+        for dc_flags in (['-p'], []):
+            _, fast = run('--true-peak-mode', 'fast', '--true-peak', *dc_flags, source)
+            _, precise = run('--true-peak-mode', 'precise', *dc_flags, source)
+            if rate == 48000:
+                assert float(INPUT_PEAK.search(precise).group(1)) > float(INPUT_PEAK.search(fast).group(1)) + .2
+            assert INPUT_PEAK.search(fast).group(1) == INPUT_PEAK.search(fast_text).group(1)
     # Album relative gating pools block energies, rather than averaging LUFS.
     fixture(source, amplitude=.2)
     fixture(second, amplitude=.02)
     _, loud = run('--lufs', '-p', source)
     other = second_dir / 'other.wav'; other.write_bytes(second.read_bytes())
-    _, album = run('-y', '-a', '--lufs', '-p', '--output-dir', folder / 'album', source, other)
+    _, album = run('-y', '-a', '--lufs', '--true-peak-mode', 'fast', '-p', '--output-dir', folder / 'album', source, other)
     gains = list(map(float, GAIN.findall(album)))
     loud_lufs = float(LUFS.search(loud).group(1))
     assert len(gains) == 2 and gains[0] == gains[1]
@@ -147,6 +203,8 @@ with tempfile.TemporaryDirectory(prefix='wavegain-features-') as temp:
     _, error = run('--lufs', source, ok=False)
     assert 'Unsupported sample rate for LUFS: 50000 Hz' in error, error
     for flags in (('--lufs', '--fast'), ('--true-peak', '--undo-gain'),
+                  ('--true-peak-mode', 'turbo'), ('--true-peak-mode', ''),
+                  ('--true-peak-mode', 'fast', '--fast'), ('--true-peak-mode', 'fast', '--undo-gain'),
                   ('--target-lufs', 'nan'), ('--peak-ceiling', 'inf'),
                   ('--dither-profile', 'rate'), ('--output', target),
                   ('-y', '--output', target, '--stdout')):

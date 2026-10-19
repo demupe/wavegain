@@ -16,6 +16,8 @@ C_TESTS = {
     'review_io': ['test/review_io.c', 'w64.c', 'wavegain.c', 'gain_analysis.c',
                   'dither.c', 'misc.c', 'loudness.c', 'resample.c', 'output.c'],
     'feature_dsp': ['test/feature_dsp.c', 'resample.c'],
+    'fir_backend': ['test/fir_backend.c'],
+    'peak_accuracy': ['test/peak_accuracy.c', 'loudness.c'],
     'gain_kernel': ['test/gain_kernel.c', 'audio.c', 'w64.c', 'gain_analysis.c',
                     'dither.c', 'misc.c', 'loudness.c', 'resample.c', 'output.c'],
     'windows_errors': ['test/windows_errors.c', 'misc.c', 'output.c'],

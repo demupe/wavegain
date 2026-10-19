@@ -52,9 +52,14 @@
                           Silence/below-gate material uses manual gain only.
       --true-peak         Measure DC-corrected true peak and limit linear gain
                           to -1 dBTP by default, even with --noclip.
+      --true-peak-mode X  precise (default, 16x) or fast (4x at every rate).
+                          Implies --true-peak; applies to output checks too.
+                          Both analyze all frames. Fast has more peak error;
+                          under-read can exceed the 0.1 dB gain reserve.
+                          Separate from --fast; cannot combine with it.
       --peak-ceiling X    Set true-peak ceiling (-60..0 dBTP); implies --true-peak.
                           A 0.1 dB margin plus quantization room is reserved.
-                          Actual quantized output is checked against the ceiling.
+                          Quantized output is checked with the selected peak meter.
                           A ceiling too low for the output bit depth is rejected.
                           stdout may contain partial output on a failed check.
                           LUFS/true peak require full analysis. Stdin is calculation

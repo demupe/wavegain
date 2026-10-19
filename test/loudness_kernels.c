@@ -34,11 +34,13 @@ static void emit_state(ebur128_state *s)
 static void adapter_regression(unsigned long rate, unsigned int channels)
 {
 	size_t lengths[] = {0, 1, 37, rate / 2 + 13}, k;
+	int quality;
+	for (quality = WG_PEAK_PRECISE; quality <= WG_PEAK_FAST; quality++)
 	for (k = 0; k < sizeof(lengths) / sizeof(lengths[0]); k++) {
 		size_t n = lengths[k], i, pos = 0;
 		unsigned int ch;
 		double *pcm[2], peak, again;
-		WG_METER *m = wg_meter_create(rate, channels, 0, 1);
+		WG_METER *m = wg_meter_create_mode(rate, channels, 0, 1, (WG_PEAK_MODE)quality);
 		assert(m);
 		for (ch = 0; ch < channels; ch++) {
 			pcm[ch] = calloc(n + 1, sizeof(double));

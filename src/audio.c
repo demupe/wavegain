@@ -312,7 +312,7 @@ int aiff_id(unsigned char *buf, int len)
 }
 
 int aiff_open(FILE *in, wavegain_opt *opt, unsigned char *buf,
-              int buflen __attribute__((unused)))
+              int buflen WG_UNUSED)
 {
 	unsigned char head[8], comm[22];
 	Uint64_t remaining = READ_U32_BE(buf + 4), size, padded, frames = 0;
@@ -407,7 +407,7 @@ int valid_gain_scale(double scale)
 
 int wav_open(FILE *in, wavegain_opt *opt,
              unsigned char *oldbuf,
-             int buflen __attribute__((unused)))
+             int buflen WG_UNUSED)
 {
 	unsigned char buf[81];
 	Int64_t len;

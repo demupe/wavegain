@@ -88,6 +88,19 @@ replacement. Peak prevention may leave output below the requested LUFS target.
 With --stdout, already-emitted audio cannot be retracted; a failed final check
 returns a nonzero exit status.
 
+--true-peak-mode precise (default) uses 16x, 385-tap interpolation for lower
+high-frequency under-read. --true-peak-mode fast uses 4x, 49-tap interpolation
+at EVERY supported rate, including 192 kHz. Either option enables true peak.
+Both analyze every frame and use the selected meter for input and quantized
+output; ReplayGain/LUFS arithmetic is unchanged. This differs from --fast,
+which samples only part of the input and cannot be combined with true peak.
+For example: wavegain -y --true-peak-mode fast input.wav
+
+Fast mode trades peak accuracy for speed. Its under-read can exceed the 0.1 dB
+reserve, so choose precise when high-frequency peak accuracy is important.
+Neither finite FIR estimate guarantees every continuous-time reconstruction
+or later sample-rate conversion; official conformance testing is pending.
+
 DC correction is track-based by default; -q selects album DC correction and
 -p disables it. With -p, LUFS and true-peak measurement share the first
 analysis read. Measuring after DC correction requires another read.
@@ -167,11 +180,14 @@ The install target uses GNU-style install options. On macOS, the built binary
 can also be copied to a directory on your PATH.
 
 Windows builds can use MinGW-w64 GCC in an MSYS2 MINGW64 shell with the same
-Makefile, or the project files in mswindows/. MinGW release builds link libssp
+Makefile, or open mswindows/WaveGain.sln in Visual Studio 2022 or later (C17
+support required). The modern project includes all src/*.c and supports Win32
+and x64 with precise floating-point settings. MinGW release builds link libssp
 statically for _FORTIFY_SOURCE and need only system DLLs. Output, measurement
 and regression checks pass on native Windows ARM64 with LLVM-MinGW Clang;
-x64 execution was checked through Windows emulation. Native MSVC/GCC and x64
-hardware remain validation follow-ups. Debian packaging in debian/ is historical and
+x64 and native MSVC Win32/x64 checks are available through the shared inventory.
+Run python tools/check_msvc.py from the matching VS Developer Command Prompt.
+Other compiler/CPU combinations remain validation follow-ups. Debian packaging in debian/ is historical and
 unmaintained; build from source rather than relying on the old debuild recipe.
 
 Tests and development
@@ -241,6 +257,19 @@ and HTML manual. Do not edit the option reference below directly.
 
 Behavior changes
 -------------------------------------------------------------------------------
+Unreleased:
+* --true-peak-mode precise|fast selects 16x (default) or 4x interpolation at
+  every source rate. It enables true peak and applies to output checks too.
+* By default, true-peak measurement uses 16x, 385-tap interpolation at every rate,
+  reducing high-frequency under-read. Peak-limited gain/output can change;
+  independent tone/reconstruction checks complement native kernel equality.
+* High-rate ReplayGain FIRs explicitly disable FMA contraction. FMA-capable
+  targets now retain the SSE2/AVX2 fast paths. Previously contracted FIR builds
+  can change rounding; non-FMA builds preserve their existing arithmetic.
+* Native MSVC builds use portable unused annotations and explicit filter
+  precision controls. A modern Win32/x64 solution replaces the Intel project
+  entry point; the older .vcproj/.icproj files are historical.
+
 Version 1.5.1:
 * GNU-compatible x86_64 builds keep ReplayGain filter histories in SSE2
   registers and evaluate eight high-rate FIR outputs in parallel, selecting
@@ -404,9 +433,14 @@ WaveGain v1.5.1
                           Silence/below-gate material uses manual gain only.
       --true-peak         Measure DC-corrected true peak and limit linear gain
                           to -1 dBTP by default, even with --noclip.
+      --true-peak-mode X  precise (default, 16x) or fast (4x at every rate).
+                          Implies --true-peak; applies to output checks too.
+                          Both analyze all frames. Fast has more peak error;
+                          under-read can exceed the 0.1 dB gain reserve.
+                          Separate from --fast; cannot combine with it.
       --peak-ceiling X    Set true-peak ceiling (-60..0 dBTP); implies --true-peak.
                           A 0.1 dB margin plus quantization room is reserved.
-                          Actual quantized output is checked against the ceiling.
+                          Quantized output is checked with the selected peak meter.
                           A ceiling too low for the output bit depth is rejected.
                           stdout may contain partial output on a failed check.
                           LUFS/true peak require full analysis. Stdin is calculation

@@ -292,7 +292,7 @@ static int remember_inputs(FILE_LIST *files, SETTINGS *settings)
 	return 1;
 }
 
-int process_files(FILE_LIST* file_list, SETTINGS* settings, const char* dir __attribute__((unused)))
+int process_files(FILE_LIST* file_list, SETTINGS* settings, const char* dir WG_UNUSED)
 {
 	FILE_LIST* file;
 	int failed = 0;
@@ -511,7 +511,7 @@ static void usage(void)
 
 
 enum { OPT_OUTPUT = 256, OPT_OUTPUT_DIR, OPT_TRUE_PEAK, OPT_PEAK_CEILING,
-       OPT_LUFS, OPT_TARGET_LUFS, OPT_DITHER_PROFILE };
+       OPT_LUFS, OPT_TARGET_LUFS, OPT_DITHER_PROFILE, OPT_TRUE_PEAK_MODE };
 
 static int parse_level(const char *text, double *value, double minimum, double maximum)
 {
@@ -525,6 +525,7 @@ static const struct option long_options[] = {
 	{"output", 1, NULL, OPT_OUTPUT},
 	{"output-dir", 1, NULL, OPT_OUTPUT_DIR},
 	{"true-peak", 0, NULL, OPT_TRUE_PEAK},
+	{"true-peak-mode", 1, NULL, OPT_TRUE_PEAK_MODE},
 	{"peak-ceiling", 1, NULL, OPT_PEAK_CEILING},
 	{"lufs", 0, NULL, OPT_LUFS},
 	{"target-lufs", 1, NULL, OPT_TARGET_LUFS},
@@ -663,6 +664,11 @@ int main(int argc, char** argv)
 			case OPT_OUTPUT: settings.output_file = optarg; break;
 			case OPT_OUTPUT_DIR: settings.output_dir = optarg; break;
 			case OPT_TRUE_PEAK: settings.true_peak = 1; break;
+			case OPT_TRUE_PEAK_MODE:
+				if (!strcmp(optarg, "precise")) settings.true_peak_mode = WG_PEAK_PRECISE;
+				else if (!strcmp(optarg, "fast")) settings.true_peak_mode = WG_PEAK_FAST;
+				else { fprintf(stderr, " --true-peak-mode requires precise or fast.\n"); return EXIT_FAILURE; }
+				settings.true_peak = 1; break;
 			case OPT_LUFS: settings.lufs = 1; break;
 			case OPT_PEAK_CEILING:
 				if (!parse_level(optarg, &settings.peak_ceiling, -60., 0.)) {
@@ -919,6 +925,11 @@ int main(int argc, char** argv)
 		write_log("\n");
 	}
 
+	if (settings.true_peak) {
+		const char *mode = settings.true_peak_mode == WG_PEAK_FAST ? "fast" : "precise";
+		fprintf(stderr, " True-peak mode: %s\n", mode);
+		if (write_to_log) write_log(" True-peak mode: %s\n", mode);
+	}
 	if (!strcmp(argv[optind], "-")) {
 		FILE_LIST info = {0};
 		int status;

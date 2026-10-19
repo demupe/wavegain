@@ -216,7 +216,8 @@ int measure_file(FILE_LIST *file, const double *dc, const SETTINGS *settings)
 	}
 	in = fopen(file->filename, "rb");
 	if (!in || !open_audio_file(in, &opt) || opt.channels != file->channels || opt.rate != file->rate) goto done;
-	file->meter = wg_meter_create((unsigned long)opt.rate, opt.channels, settings->lufs, settings->true_peak);
+	file->meter = wg_meter_create_mode((unsigned long)opt.rate, opt.channels, settings->lufs,
+		settings->true_peak, settings->true_peak_mode);
 	if (!file->meter) goto done;
 	for (ch = 0; ch < opt.channels; ch++) if (!(pcm[ch] = malloc(BUFFER_LEN * sizeof(double)))) goto done;
 	while ((count = opt.read_samples(opt.readdata, pcm, BUFFER_LEN, 0, 0)) > 0) {
@@ -338,7 +339,8 @@ int get_gain(const char *filename, double *track_peak, double *track_gain,
         offset[ch] = dc_offset[ch] = 0.;
     }
     if (settings->no_offset && (settings->lufs || settings->true_peak)) {
-        info->meter = wg_meter_create((unsigned long)opt.rate, opt.channels, settings->lufs, settings->true_peak);
+        info->meter = wg_meter_create_mode((unsigned long)opt.rate, opt.channels, settings->lufs,
+            settings->true_peak, settings->true_peak_mode);
         if (!info->meter) goto done;
     }
     while (!sampled || iteration < 200) {
@@ -425,7 +427,7 @@ double audio_duration(const char *filename, const SETTINGS *settings)
  * radio_gain value is used.
  */
 int write_gains(const char *filename, double radio_gain, double audiophile_gain,
-                double TitlePeak __attribute__((unused)),
+                double TitlePeak WG_UNUSED,
                 double *dc_offset, double *album_dc_offset, SETTINGS *settings)
 {
 	wavegain_opt *wg_opts = calloc(1, sizeof(*wg_opts));
@@ -591,7 +593,8 @@ int write_gains(const char *filename, double radio_gain, double audiophile_gain,
 			Init_Rate_Dither(wg_opts->rate, settings->shapingtype);
 		}
 		if (settings->true_peak) {
-			output_meter = wg_meter_create((unsigned long)wg_opts->rate, wg_opts->channels, 0, 1);
+			output_meter = wg_meter_create_mode((unsigned long)wg_opts->rate, wg_opts->channels,
+				0, 1, settings->true_peak_mode);
 			if (!output_meter) goto exit;
 		}
 

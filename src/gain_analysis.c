@@ -251,6 +251,10 @@ static const Float_t ABButter[12][2*BUTTER_ORDER + 1] = {
  * GCC keeps per-function optimize options through LTO; Clang uses a block pragma. */
 #if defined(__clang__)
 # define FILTER_NO_CONTRACT _Pragma("clang fp contract(off)")
+#elif defined(_MSC_VER)
+# pragma float_control(precise, on)
+# pragma fp_contract(off)
+# define FILTER_NO_CONTRACT
 #else
 # define FILTER_NO_CONTRACT
 #endif

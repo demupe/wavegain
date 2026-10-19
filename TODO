@@ -5,7 +5,7 @@ Validation
 ----------
 - Validate official ITU/EBU conformance signals across supported rates and
   channel layouts; native-reference equality alone is not certification.
-- Extend native GCC/MSVC/Linux, Intel Mac and other x64 CPU validation.
+- Extend native GCC/Linux, Intel Mac and other x64 CPU validation.
   Check extended-precision/x87 rounding and broaden cached stereo-history
   and handwritten SSE2/AVX2 analysis kernels and dense AVX2 interpolation
   measurements beyond Windows x64 Clang.

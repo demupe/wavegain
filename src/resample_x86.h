@@ -6,11 +6,10 @@
 #ifndef WAVEGAIN_X86_ASM
 #define WAVEGAIN_X86_ASM 1
 #endif
-/* The existing scalar FIR may contract on globally FMA-enabled targets.
- * Retain that path there rather than silently change its rounding policy. */
+/* resample.c disables contraction in the scalar reference too. */
 #if WAVEGAIN_X86_ASM && defined(__x86_64__) && defined(__SSE2__) && \
 	(defined(__GNUC__) || defined(__clang__)) && \
-	!defined(__FAST_MATH__) && !defined(__FMA__)
+	!defined(__FAST_MATH__)
 #define WG_FIR_X86_ASM 1
 /* GNU extended-asm templates exceed ISO C's minimum string-literal limit.
  * These compilers support the full templates; keep the exception local. */

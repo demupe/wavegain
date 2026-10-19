@@ -4,10 +4,14 @@
 #define _USE_MATH_DEFINES
 #endif
 #include <string.h>
+#include <stdint.h>
 #if defined(__clang__)
 #pragma clang fp contract(off)
 #elif defined(__GNUC__)
 #pragma GCC optimize ("fp-contract=off")
+#elif defined(_MSC_VER)
+#pragma float_control(precise, on)
+#pragma fp_contract(off)
 #endif
 #include "../vendor/libebur128/ebur128.c"
 #include "loudness.h"
@@ -21,11 +25,47 @@ struct wg_meter {
 	int finished, has_loudness, has_peak;
 };
 
+/* Keep the library reference kernels intact. Precise uses 385 taps/16x;
+ * fast uses 49 taps/4x at EVERY rate, including 192 kHz. Both are finite FIR
+ * estimates and fit the kernels' maximum of 25 input history slots. */
+static int wg_meter_init_peak(ebur128_state *st, WG_PEAK_MODE peak_mode)
+{
+	unsigned int factor = peak_mode == WG_PEAK_FAST ? 4 : 16;
+	interpolator *ip = interp_create(peak_mode == WG_PEAK_FAST ? 49 : 385, factor, st->channels);
+	size_t input_frames = st->d->samples_in_100ms * 4;
+	size_t output_frames;
+	float *input, *output;
+	if (!ip) return 0;
+	if (input_frames > SIZE_MAX / factor / st->channels / sizeof(float)) {
+		interp_destroy(ip); return 0;
+	}
+	output_frames = input_frames * factor;
+	input = malloc(input_frames * st->channels * sizeof(float));
+	output = malloc(output_frames * st->channels * sizeof(float));
+	if (!input || !output) {
+		free(input); free(output); interp_destroy(ip); return 0;
+	}
+	ebur128_destroy_resampler(st);
+	st->d->interp = ip;
+	st->d->resampler_buffer_input = input;
+	st->d->resampler_buffer_input_frames = input_frames;
+	st->d->resampler_buffer_output = output;
+	st->d->resampler_buffer_output_frames = output_frames;
+	return 1;
+}
+
 WG_METER *wg_meter_create(unsigned long rate, unsigned int channels, int loudness, int peak)
+{
+	return wg_meter_create_mode(rate, channels, loudness, peak, WG_PEAK_PRECISE);
+}
+
+WG_METER *wg_meter_create_mode(unsigned long rate, unsigned int channels, int loudness, int peak,
+	WG_PEAK_MODE peak_mode)
 {
 	WG_METER *m = calloc(1, sizeof(*m));
 	int mode = EBUR128_MODE_M;
-	if (!m || channels < 1 || channels > 2) { free(m); return NULL; }
+	if (!m || channels < 1 || channels > 2 ||
+	    (peak_mode != WG_PEAK_PRECISE && peak_mode != WG_PEAK_FAST)) { free(m); return NULL; }
 	if (loudness) mode |= EBUR128_MODE_I;
 	if (peak) mode |= EBUR128_MODE_TRUE_PEAK;
 	m->channels = channels;
@@ -33,6 +73,9 @@ WG_METER *wg_meter_create(unsigned long rate, unsigned int channels, int loudnes
 	m->has_peak = peak;
 	m->state = ebur128_init(channels, rate, mode);
 	if (!m->state) { free(m); return NULL; }
+	if (peak && !wg_meter_init_peak(m->state, peak_mode)) {
+		ebur128_destroy(&m->state); free(m); return NULL;
+	}
 	return m;
 }
 

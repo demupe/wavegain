@@ -1,5 +1,6 @@
 wavegain
 /wavegain.exe
+/mswindows/build/
 *.dSYM/
 __pycache__/
 debian/*.debhelper.log

@@ -51,8 +51,17 @@ static double dither_high_frequency(long rate, int shape)
 
 /* Keep the original wrapping convolution as a bitwise oracle. Mirroring must
  * preserve the accumulation order, startup delay, tail and chunk boundaries. */
+#if defined(__GNUC__) && !defined(__clang__)
+__attribute__((optimize("fp-contract=off")))
+#endif
 static void check_decimator_bits(void)
 {
+#if defined(__clang__)
+#pragma clang fp contract(off)
+#elif defined(_MSC_VER)
+#pragma float_control(precise, on)
+#pragma fp_contract(off)
+#endif
 	WG_DECIMATOR state;
 	double history[2][127] = {{0}}, data[2][257], expected[2][257];
 	double *pcm[2] = {data[0], data[1]};
