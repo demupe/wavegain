@@ -1,4 +1,4 @@
-# WaveGain v1.5.0
+# WaveGain v1.5.1
 
 [English](README) | 日本語
 
