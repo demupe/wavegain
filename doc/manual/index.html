@@ -1,11 +1,11 @@
 <!doctype html>
 <html lang="en"><meta charset="utf-8">
-<title>WaveGain 1.5.2</title>
+<title>WaveGain 1.5.3</title>
 <style>body{max-width:76em;margin:2em auto;padding:0 1em;font:16px system-ui}pre{white-space:pre-wrap}</style>
-<h1>WaveGain 1.5.2</h1>
+<h1>WaveGain 1.5.3</h1>
 <p>ReplayGain adjusts the audio samples. Applying gain and undoing it are lossy.</p>
 <p>Generated from doc/help.json. <a href="legacy-notes.txt">Historical manual notes</a>.</p>
-<pre>WaveGain v1.5.2
+<pre>WaveGain v1.5.3
  Usage: wavegain [options] input.wav [...] (also .w64)
 
  OPTIONS
@@ -118,6 +118,9 @@
                    TRACK_GAIN, TRACK_PEAK, TRACK_SCALE, TRACK_NEW_PEAK,
                    ALBUM_GAIN, ALBUM_PEAK, ALBUM_SCALE, ALBUM_NEW_PEAK,
                    DC_OFFSET_L, DC_OFFSET_R
+                   %VAR% references to these are expanded after cmd.exe
+                   parsing, so file names are never treated as commands.
+                   They do not expand inside pipes. &#x27;!&#x27; is not allowed.
  INPUT FILES
   WaveGain input files may be 8, 16, 24 or 32 bit integer, or floating point
   WAV or Sony Wave64 files with 1 or 2 channels and a sample rate of 192000Hz, 176400Hz, 96000Hz, 88200Hz,

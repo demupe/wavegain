@@ -74,10 +74,20 @@ int main(void)
 	fail_allocation = api_fault = 0;
 	command = build_command("echo hello", 0, NULL);
 	assert(command && !strcmp(command, "echo hello")); free(command);
+	{
+		/* WaveGain variables expand after cmd.exe parsing; others are left alone. */
+		char *variables[] = {"%input_name%", "%PATH%", "%INPUT_FILE", "%TRACK_GAIN%%DC_OFFSET_R%"};
+		char *bang[] = {"wow!"};
+		command = build_command("echo %INPUT_FILE%", 4, variables);
+		assert(command && !strcmp(command, "echo !INPUT_FILE! \"!input_name!\" \"%PATH%\" "
+			"\"%INPUT_FILE\" \"!TRACK_GAIN!!DC_OFFSET_R!\"")); free(command);
+		assert(!build_command("echo !INPUT_FILE!", 0, NULL));
+		assert(!build_command("echo", 1, bang));
+	}
 	api_fault = 6;
 	command = build_command("echo", 0, NULL);
-	assert(command && !strcmp(command, "\"\"tool path\"\"")); free(command);
-	puts("Windows command limits, quoting, Win32 length faults and allocation failures passed");
+	assert(command && !strcmp(command, "\"tool path\"")); free(command);
+	puts("Windows command limits, quoting, delayed variables, Win32 length faults and allocation failures passed");
 #else
 	puts("Windows command construction: skipped on POSIX");
 #endif

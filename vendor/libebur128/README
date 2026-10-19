@@ -27,5 +27,8 @@ the WaveGain adapter's peak-only filter bypass for incremental comparisons.
 K-weighting retains the shelf and high-pass as two biquads to reduce high-rate
 cancellation; state now contains eight values per channel. Integration uses
 rounded 400 ms windows and rational 100 ms hops, including ring-boundary splits.
+History and true-peak staging capacities cover the rounded 400 ms block even
+at arbitrary rates. Maximum-window updates convert milliseconds to frames
+using the same history sizing as initialization and parameter changes.
 The WaveGain extended peak adapter adds its own screened finite FIR; vendor
 true-peak kernels themselves retain their existing coefficients and layout.

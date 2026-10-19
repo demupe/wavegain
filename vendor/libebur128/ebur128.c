@@ -112,6 +112,33 @@ struct ebur128_state_internal {
   unsigned long history;
 };
 
+static size_t ebur128_block_frames(const ebur128_state* st) {
+  return (size_t) (((uint64_t) st->samplerate * 4 + 5) / 10);
+}
+
+/* Every filter call fits either the first 400-ms block or a later 100-ms hop.
+ * Keep the historical capacity where rounding made it larger. */
+static size_t ebur128_peak_buffer_frames(const ebur128_state* st) {
+  size_t frames = st->d->samples_in_100ms * 4;
+  size_t block = ebur128_block_frames(st);
+  return frames > block ? frames : block;
+}
+
+static int ebur128_history_frames(const ebur128_state* st, unsigned long window,
+                                  size_t* frames) {
+  size_t remainder;
+  if (safe_size_mul(st->samplerate, window, frames)) return 1;
+  *frames /= 1000;
+  if (*frames < ebur128_block_frames(st)) *frames = ebur128_block_frames(st);
+  remainder = *frames % st->d->samples_in_100ms;
+  if (remainder) {
+    size_t extra = st->d->samples_in_100ms - remainder;
+    if (*frames > (size_t) -1 - extra) return 1;
+    *frames += extra;
+  }
+  return 0;
+}
+
 static double relative_gate = -10.0;
 
 /* Those will be calculated when initializing the library */
@@ -368,7 +395,7 @@ static int ebur128_init_resampler(ebur128_state* st) {
     goto exit;
   }
 
-  st->d->resampler_buffer_input_frames = st->d->samples_in_100ms * 4;
+  st->d->resampler_buffer_input_frames = ebur128_peak_buffer_frames(st);
   st->d->resampler_buffer_input = (float*) malloc(
       st->d->resampler_buffer_input_frames * st->channels * sizeof(float));
   CHECK_ERROR(!st->d->resampler_buffer_input, EBUR128_ERROR_NOMEM, free_interp)
@@ -466,13 +493,8 @@ ebur128_init(unsigned int channels, unsigned long samplerate, int mode) {
   } else {
     goto free_prev_true_peak;
   }
-  st->d->audio_data_frames = st->samplerate * st->d->window / 1000;
-  if (st->d->audio_data_frames % st->d->samples_in_100ms) {
-    /* round up to multiple of samples_in_100ms */
-    st->d->audio_data_frames =
-        (st->d->audio_data_frames + st->d->samples_in_100ms) -
-        (st->d->audio_data_frames % st->d->samples_in_100ms);
-  }
+  CHECK_ERROR(ebur128_history_frames(st, st->d->window, &st->d->audio_data_frames),
+              0, free_prev_true_peak)
   st->d->audio_data = (double*) malloc(st->d->audio_data_frames * st->channels *
                                        sizeof(double));
   CHECK_ERROR(!st->d->audio_data, 0, free_prev_true_peak)
@@ -516,7 +538,7 @@ ebur128_init(unsigned int channels, unsigned long samplerate, int mode) {
   CHECK_ERROR(result, 0, free_short_term_block_energy_histogram)
 
   /* the first block needs 400ms of audio data */
-  st->d->needed_frames = (unsigned long) (((uint64_t) st->samplerate * 4 + 5) / 10);
+  st->d->needed_frames = (unsigned long) ebur128_block_frames(st);
   st->d->hop_remainder = (unsigned int) ((4 * (st->samplerate % 10) + 5) % 10);
   /* start at the beginning of the buffer */
   st->d->audio_data_index = 0;
@@ -889,13 +911,8 @@ int ebur128_change_parameters(ebur128_state* st,
   errcode = ebur128_init_filter(st);
   CHECK_ERROR(errcode, EBUR128_ERROR_NOMEM, exit)
 
-  st->d->audio_data_frames = st->samplerate * st->d->window / 1000;
-  if (st->d->audio_data_frames % st->d->samples_in_100ms) {
-    /* round up to multiple of samples_in_100ms */
-    st->d->audio_data_frames =
-        (st->d->audio_data_frames + st->d->samples_in_100ms) -
-        (st->d->audio_data_frames % st->d->samples_in_100ms);
-  }
+  CHECK_ERROR(ebur128_history_frames(st, st->d->window, &st->d->audio_data_frames),
+              EBUR128_ERROR_NOMEM, exit)
   st->d->audio_data = (double*) malloc(st->d->audio_data_frames * st->channels *
                                        sizeof(double));
   CHECK_ERROR(!st->d->audio_data, EBUR128_ERROR_NOMEM, exit)
@@ -908,7 +925,7 @@ int ebur128_change_parameters(ebur128_state* st,
   CHECK_ERROR(errcode, EBUR128_ERROR_NOMEM, exit)
 
   /* the first block needs 400ms of audio data */
-  st->d->needed_frames = (unsigned long) (((uint64_t) st->samplerate * 4 + 5) / 10);
+  st->d->needed_frames = (unsigned long) ebur128_block_frames(st);
   st->d->hop_remainder = (unsigned int) ((4 * (st->samplerate % 10) + 5) % 10);
   /* start at the beginning of the buffer */
   st->d->audio_data_index = 0;
@@ -934,14 +951,8 @@ int ebur128_set_max_window(ebur128_state* st, unsigned long window) {
   }
 
   size_t new_audio_data_frames;
-  if (safe_size_mul(st->samplerate, window, &new_audio_data_frames) != 0 ||
-      new_audio_data_frames > ((size_t) -1) - st->d->samples_in_100ms) {
+  if (ebur128_history_frames(st, window, &new_audio_data_frames)) {
     return EBUR128_ERROR_NOMEM;
-  }
-  if (new_audio_data_frames % st->d->samples_in_100ms) {
-    /* round up to multiple of samples_in_100ms */
-    new_audio_data_frames = (new_audio_data_frames + st->d->samples_in_100ms) -
-                            (new_audio_data_frames % st->d->samples_in_100ms);
   }
 
   size_t new_audio_data_size;
@@ -962,7 +973,7 @@ int ebur128_set_max_window(ebur128_state* st, unsigned long window) {
   }
 
   /* the first block needs 400ms of audio data */
-  st->d->needed_frames = (unsigned long) (((uint64_t) st->samplerate * 4 + 5) / 10);
+  st->d->needed_frames = (unsigned long) ebur128_block_frames(st);
   st->d->hop_remainder = (unsigned int) ((4 * (st->samplerate % 10) + 5) % 10);
   /* start at the beginning of the buffer */
   st->d->audio_data_index = 0;
@@ -1022,7 +1033,7 @@ static int ebur128_energy_shortterm(ebur128_state* st, double* out);
         st->d->audio_data_index += st->d->needed_frames * st->channels;         \
         /* calculate the new gating block */                                    \
         if ((st->mode & EBUR128_MODE_I) == EBUR128_MODE_I) {                    \
-          if (ebur128_calc_gating_block(st, (size_t) (((uint64_t) st->samplerate * 4 + 5) / 10),\
+          if (ebur128_calc_gating_block(st, ebur128_block_frames(st),            \
                                         NULL)) {                                \
             return EBUR128_ERROR_NOMEM;                                         \
           }                                                                     \

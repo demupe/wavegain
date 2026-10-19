@@ -107,6 +107,18 @@ def main():
             before = path.read_bytes()
             run('-y', path, '-e', 'echo', 'x' * 9000, success=False)
             assert path.read_bytes() == before
+            run('-c', path, '-e', 'echo', 'wow!', success=False)
+            # File and folder names expand as data, never as cmd.exe syntax.
+            hostile = folder / 'd&echo INJECTED&'
+            hostile.mkdir()
+            for name in (folder / 'a&echo INJECTED&.wav', folder / 'b^(x)%PATH%!y.wav', hostile / 'c.wav'):
+                name.write_bytes(original)
+                for command in (['echo %INPUT_FILE%'], ['echo', '%INPUT_FDIR%', '%INPUT_NAME%']):
+                    result = run('-c', '-q', name, '-e', *command)
+                    lines = result.stdout.decode(errors='replace').splitlines()
+                    assert not any(line.strip() == 'INJECTED' for line in lines), result
+                    assert name.stem in result.stdout.decode(errors='replace'), result
+                assert name.read_bytes() == original
     print('Follow-up regressions passed: gain metadata, frame bounds, extensible PCM, duplicate identities, DC and command limits')
 
 

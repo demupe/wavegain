@@ -23,6 +23,7 @@
 #include <string.h>
 #include <math.h>
 #include <errno.h>
+#include <stdint.h>
 #include <sys/stat.h>
 #ifndef _WIN32
 #include <unistd.h>
@@ -211,6 +212,7 @@ typedef struct input_identity {
 
 struct seen_input {
 	struct seen_input *next;
+	struct seen_input *path_next, *original_next, *current_next;
 	char *path;
 	INPUT_IDENTITY original, current;
 };
@@ -245,6 +247,95 @@ static int same_input(const INPUT_IDENTITY *a, const INPUT_IDENTITY *b)
 #endif
 }
 
+static uint64_t input_hash_mix(uint64_t value)
+{
+	value = (value ^ (value >> 30)) * UINT64_C(0xbf58476d1ce4e5b9);
+	value = (value ^ (value >> 27)) * UINT64_C(0x94d049bb133111eb);
+	return value ^ (value >> 31);
+}
+
+static size_t input_path_bucket(const char *path, size_t capacity)
+{
+	uint64_t hash = UINT64_C(14695981039346656037);
+	while (*path) { hash ^= (unsigned char)*path++; hash *= UINT64_C(1099511628211); }
+	return (size_t)hash & (capacity - 1);
+}
+
+static size_t input_id_bucket(const INPUT_IDENTITY *id, size_t capacity)
+{
+#ifdef _WIN32
+	uint64_t first = id->volume, second = ((uint64_t)id->high << 32) | id->low;
+#else
+	uint64_t first = (uint64_t)id->device, second = (uint64_t)id->inode;
+#endif
+	return (size_t)(input_hash_mix(first) ^ input_hash_mix(second + UINT64_C(0x9e3779b97f4a7c15))) & (capacity - 1);
+}
+
+static void index_seen_input(SETTINGS *settings, struct seen_input *seen)
+{
+	size_t capacity = settings->seen_capacity;
+	struct seen_input **bucket = settings->seen_buckets + input_path_bucket(seen->path, capacity);
+	seen->path_next = *bucket; *bucket = seen;
+	if (seen->original.valid) {
+		bucket = settings->seen_buckets + capacity + input_id_bucket(&seen->original, capacity);
+		seen->original_next = *bucket; *bucket = seen;
+	}
+	if (seen->current.valid) {
+		bucket = settings->seen_buckets + 2 * capacity + input_id_bucket(&seen->current, capacity);
+		seen->current_next = *bucket; *bucket = seen;
+	}
+}
+
+static int reserve_seen_inputs(SETTINGS *settings)
+{
+	size_t capacity = settings->seen_capacity;
+	struct seen_input **buckets, *seen;
+	if (capacity && settings->seen_count < capacity - capacity / 4) return 1;
+	if (capacity > SIZE_MAX / 2) return 0;
+	capacity = capacity ? capacity * 2 : 64;
+	if (capacity > SIZE_MAX / 3 / sizeof(*buckets)) return 0;
+	buckets = calloc(3 * capacity, sizeof(*buckets));
+	if (!buckets) return 0;
+	free(settings->seen_buckets);
+	settings->seen_buckets = buckets; settings->seen_capacity = capacity;
+	for (seen = settings->seen_inputs; seen; seen = seen->next) index_seen_input(settings, seen);
+	return 1;
+}
+
+static int input_seen(const SETTINGS *settings, const char *path, const INPUT_IDENTITY *id)
+{
+	size_t capacity = settings->seen_capacity;
+	struct seen_input *seen;
+	/* Always check paths: an earlier pathname can now refer to a different ID. */
+	for (seen = settings->seen_buckets[input_path_bucket(path, capacity)]; seen; seen = seen->path_next)
+		if (!strcmp(path, seen->path)) return 1;
+	if (!id->valid) return 0;
+	for (seen = settings->seen_buckets[capacity + input_id_bucket(id, capacity)]; seen; seen = seen->original_next)
+		if (same_input(id, &seen->original)) return 1;
+	for (seen = settings->seen_buckets[2 * capacity + input_id_bucket(id, capacity)]; seen; seen = seen->current_next)
+		if (same_input(id, &seen->current)) return 1;
+	return 0;
+}
+
+/* Atomic output publication changes the ID. Remove the old current key while
+ * retaining the original key to recognize aliases in later directory batches. */
+static void refresh_seen_input(SETTINGS *settings, FILE_LIST *file)
+{
+	struct seen_input *seen = file->seen, **bucket;
+	size_t capacity = settings->seen_capacity;
+	if (seen->current.valid) {
+		bucket = settings->seen_buckets + 2 * capacity + input_id_bucket(&seen->current, capacity);
+		while (*bucket != seen) bucket = &(*bucket)->current_next;
+		*bucket = seen->current_next;
+	}
+	input_identity(file->filename, &seen->current);
+	seen->current_next = NULL;
+	if (seen->current.valid) {
+		bucket = settings->seen_buckets + 2 * capacity + input_id_bucket(&seen->current, capacity);
+		seen->current_next = *bucket; *bucket = seen;
+	}
+}
+
 static void free_seen_inputs(SETTINGS *settings)
 {
 	while (settings->seen_inputs) {
@@ -252,6 +343,8 @@ static void free_seen_inputs(SETTINGS *settings)
 		settings->seen_inputs = seen->next;
 		free(seen->path); free(seen);
 	}
+	free(settings->seen_buckets); settings->seen_buckets = NULL;
+	settings->seen_capacity = settings->seen_count = 0;
 }
 
 /* Retain both identities: replacing one name can break a hard/symbolic link.
@@ -277,20 +370,83 @@ static int remember_inputs(FILE_LIST *files, SETTINGS *settings)
 #endif
 		if (!path) return 0;
 		input_identity(file->filename, &id);
-		for (seen = settings->seen_inputs; seen; seen = seen->next) {
-			if (!strcmp(path, seen->path) || same_input(&id, &seen->original) || same_input(&id, &seen->current)) {
-				fprintf(stderr, " Duplicate input refused: %s.\n", file->filename);
-				free(path); return 0;
-			}
+		if (!reserve_seen_inputs(settings)) { free(path); return 0; }
+		if (input_seen(settings, path, &id)) {
+			fprintf(stderr, " Duplicate input refused: %s.\n", file->filename);
+			free(path); return 0;
 		}
 		seen = calloc(1, sizeof(*seen));
 		if (!seen) { free(path); return 0; }
 		seen->path = path; seen->original = seen->current = id;
 		seen->next = settings->seen_inputs;
 		settings->seen_inputs = file->seen = seen;
+		index_seen_input(settings, seen); settings->seen_count++;
 	}
 	return 1;
 }
+
+#ifdef _WIN32
+/* Variables published to --exec commands; keep in sync with process_files()
+ * and doc/help.json. */
+static const char *const exec_variables[] = {
+	"INPUT_FILE", "INPUT_FDIR", "INPUT_RDIR", "INPUT_NAME",
+	"TRACK_GAIN", "TRACK_PEAK", "TRACK_SCALE", "TRACK_NEW_PEAK",
+	"ALBUM_GAIN", "ALBUM_PEAK", "ALBUM_SCALE", "ALBUM_NEW_PEAK",
+	"DC_OFFSET_L", "DC_OFFSET_R"
+};
+
+/* cmd.exe expands %VAR% before parsing, so file names containing & | < > ^ ( )
+ * would become command syntax. Delayed !VAR! expansion runs after parsing and
+ * is never re-parsed, so switch WaveGain's own variables to it. A literal '!'
+ * cannot be represented reliably under /v:on and is rejected. */
+static int delay_exec_variables(char *command)
+{
+	char *p;
+	size_t i, n;
+	for (p = command; *p; p++) {
+		if (*p == '!') return 0;
+		if (*p != '%') continue;
+		for (i = 0; i < sizeof(exec_variables) / sizeof(*exec_variables); i++) {
+			n = strlen(exec_variables[i]);
+			if (!_strnicmp(p + 1, exec_variables[i], n) && p[n + 1] == '%') {
+				p[0] = p[n + 1] = '!';
+				p += n + 1;
+				break;
+			}
+		}
+	}
+	return 1;
+}
+
+/* Run a command prepared by build_command() through the system cmd.exe:
+ * /d skips AutoRun, /v:on enables the delayed variables, and /s strips only
+ * the enclosing quotes added here. */
+static int run_exec_command(const char *command)
+{
+	static const char options[] = " /d /v:on /s /c \"";
+	char shell[MAX_PATH + 9], *line;
+	UINT length = GetSystemDirectoryA(shell, MAX_PATH);
+	STARTUPINFOA startup;
+	PROCESS_INFORMATION process;
+	BOOL started;
+	if (!length || length >= MAX_PATH) return 0;
+	strcpy(shell + length, "\\cmd.exe");
+	line = malloc(strlen(shell) + sizeof(options) + strlen(command) + 3);
+	if (!line) return 0;
+	sprintf(line, "\"%s\"%s%s\"", shell, options, command);
+	memset(&startup, 0, sizeof(startup));
+	startup.cb = sizeof(startup);
+	fflush(stdout);
+	fflush(stderr);
+	started = CreateProcessA(shell, line, NULL, NULL, TRUE, 0, NULL, NULL, &startup, &process);
+	free(line);
+	if (!started) return 0;
+	WaitForSingleObject(process.hProcess, INFINITE);
+	CloseHandle(process.hThread);
+	CloseHandle(process.hProcess);
+	return 1;
+}
+#endif
 
 int process_files(FILE_LIST* file_list, SETTINGS* settings, const char* dir WG_UNUSED)
 {
@@ -325,7 +481,7 @@ int process_files(FILE_LIST* file_list, SETTINGS* settings, const char* dir WG_U
 				failed = 1;
 				continue;
 			}
-			input_identity(file->filename, &file->seen->current);
+			refresh_seen_input(settings, file);
 		}
 	}
 	else {
@@ -443,7 +599,7 @@ int process_files(FILE_LIST* file_list, SETTINGS* settings, const char* dir WG_U
                     fprintf(stderr, " Error processing GAIN for file - %s\n", file->filename);
                     failed = 1;
                 }
-				input_identity(file->filename, &file->seen->current);
+				refresh_seen_input(settings, file);
             }
         }
 	}
@@ -501,7 +657,10 @@ int process_files(FILE_LIST* file_list, SETTINGS* settings, const char* dir WG_U
 			SetEnvironmentVariable("DC_OFFSET_R", ftos(trunc(file->dc_offset[1] * -32768.) + 0., "%.0lf"));
 
 			fprintf(stderr, "\n Executing command on \"%s\":\n\n", file->filename);
-			system(settings->cmd);
+			if (!run_exec_command(settings->cmd)) {
+				fprintf(stderr, " Error: cannot start the command.\n");
+				failed = 1;
+			}
 			free(buff);
 		}
 	}
@@ -605,11 +764,11 @@ static char *build_command(const char *program, int argc, char **argv)
 	}
 	name_length = strlen(name);
 	/* Preserve shell fragments such as "echo hello". Quote actual executable
-	 * paths only; cmd.exe needs an additional enclosing quote pair. */
+	 * paths only; run_exec_command() adds the enclosing pair for cmd /s. */
 	quote = strpbrk(name, " \t") && (name == short_name ||
 		(full && GetFileAttributesA(full) != INVALID_FILE_ATTRIBUTES));
-	if (name_length > limit - 4 * quote) goto done;
-	length = name_length + 4 * quote;
+	if (name_length > limit - 2 * quote) goto done;
+	length = name_length + 2 * quote;
 	for (i = 0; i < argc; i++) {
 		size_t argument = strlen(argv[i]);
 		if (length > limit - 3 || argument > limit - length - 3) goto done;
@@ -619,7 +778,6 @@ static char *build_command(const char *program, int argc, char **argv)
 	if (!command) goto done;
 	p = command;
 	if (quote) *p++ = '"';
-	if (quote) *p++ = '"';
 	memcpy(p, name, name_length); p += name_length;
 	if (quote) *p++ = '"';
 	for (i = 0; i < argc; i++) {
@@ -628,8 +786,11 @@ static char *build_command(const char *program, int argc, char **argv)
 		memcpy(p, argv[i], argument); p += argument;
 		*p++ = '"';
 	}
-	if (quote) *p++ = '"';
 	*p = 0;
+	if (!delay_exec_variables(command)) {
+		free(command);
+		command = NULL;
+	}
 done:
 	free(full);
 	free(short_name);
@@ -862,7 +1023,7 @@ int main(int argc, char** argv)
 				free(settings.cmd);
 				settings.cmd = build_command(optarg, argc - optind, argv + optind);
 				if (settings.cmd == NULL) {
-					fprintf(stderr, "Command exceeds the shell limit or cannot be prepared.\n");
+					fprintf(stderr, "Command exceeds the shell limit, contains '!', or cannot be prepared.\n");
 					return 1;
 				}
 				argc = optind;

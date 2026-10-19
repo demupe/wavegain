@@ -24,7 +24,7 @@ WaveGain applies ReplayGain to wave files by rewriting the PCM data directly (op
 - Large-file rules (from v1.4.1):
   - WAV output over 4 GiB is still written, with sizes clamped to `0xFFFFFFFF` and a warning.
   - `--rf64` reserves a JUNK chunk and converts it to `ds64` only if the output exceeds 4 GiB. It needs seekable output and is ignored with `--stdout`.
-  - Input with data size `0xFFFFFFFF` or a size past EOF is read to EOF when the input is seekable. Stdin input is strict.
+  - Input with data size `0xFFFFFFFF` or a size past EOF is read to EOF when the input is seekable, provided it ends on a complete PCM frame. Incomplete frames are refused, including after EOF recovery. Stdin input is strict.
   - RF64 input is read via `ds64`.
 - Sizes use `Int64_t`/`Uint64_t`; PCM storage uses fixed-width 32-bit types (64-bit builds previously corrupted data).
 

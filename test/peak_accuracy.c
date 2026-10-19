@@ -4,8 +4,38 @@
 #include <stdio.h>
 #include "../src/loudness.h"
 
+static void check_abrupt_tail(void)
+{
+	const long rates[] = {176400, 192000};
+	double data[2][512], *pcm[] = {data[0], data[1]};
+	long double expected = 0., pi = acosl(-1.L);
+	/* Independent ideal reconstruction of a finite rectangular pulse near its
+ * last sample, explicitly zero beyond EOF. The opposite edge is symmetric. */
+	for (int phase = 0; phase <= 512; phase++) {
+		long double t = 507.L + phase / 64.L, sum = 0.;
+		for (int i = 0; i < 512; i++) {
+			long double d = t - i;
+			sum += .5L * (d == 0. ? 1.L : sinl(pi * d) / (pi * d));
+		}
+		if (fabsl(sum) > expected) expected = fabsl(sum);
+	}
+	assert(expected > .55);
+	for (int i = 0; i < 512; i++) { data[0][i] = .5; data[1][i] = -.5; }
+	for (size_t r = 0; r < sizeof(rates) / sizeof(*rates); r++)
+	for (unsigned int channels = 1; channels <= 2; channels++)
+	for (int loudness = 0; loudness <= 1; loudness++) {
+		double peak;
+		WG_METER *m = wg_meter_create_mode(rates[r], channels, loudness, 1, WG_PEAK_PRECISE);
+		assert(m); assert(wg_meter_add(m, pcm, 512)); assert(wg_meter_finish(m, NULL, &peak));
+		/* This pulse's finite-FIR estimate must include endpoint overshoot. */
+		assert(fabs(20 * log10(peak / (double)expected)) < .15);
+		wg_meter_free(m);
+	}
+}
+
 int main(void)
 {
+	check_abrupt_tail();
 	const long rates[] = {44100, 48000, 96000, 192000};
 	const double frequencies[] = {1./8, 1./6, 1./4, 3./8, .4, .45, .475, .49};
 	const int chunks[] = {1, 2, 3, 63, 64, 65, 257};
