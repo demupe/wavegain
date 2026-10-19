@@ -56,7 +56,7 @@ verified-release:
 	$(MAKE) clean
 	$(MAKE) $(TARGET) CC="$(CC)" CPPFLAGS="$(CPPFLAGS)" CFLAGS="$(CFLAGS)" DEFS="$(DEFS)" LDFLAGS="$(LDFLAGS)"
 	python3 test/filter_regressions.py --cc "$(CC)" --cflags="$(CPPFLAGS) $(CFLAGS) $(DEFS)" --ldflags="$(LDFLAGS) $(LIBS)" $(if $(filter 0 1,$(VERIFY_SIMD)),--expect-simd $(VERIFY_SIMD)) --cli "./$(TARGET)" || { $(RM) "$(TARGET)"; exit 1; }
-	python3 test/run_suite.py --only feature_dsp --cc "$(CC)" --cflags="$(CPPFLAGS) $(CFLAGS) $(DEFS)" --ldflags="$(LDFLAGS) $(LIBS)" || { $(RM) "$(TARGET)"; exit 1; }
+	python3 test/run_suite.py --only feature_dsp --only fir_backend --only peak_accuracy --only fundamental_dsp --cc "$(CC)" --cflags="$(CPPFLAGS) $(CFLAGS) $(DEFS)" --ldflags="$(LDFLAGS) $(LIBS)" || { $(RM) "$(TARGET)"; exit 1; }
 	python3 test/loudness_kernels.py --cc "$(CC)" --cflags="$(CPPFLAGS) $(CFLAGS) $(DEFS)" --ldflags="$(LDFLAGS) $(LIBS)" || { $(RM) "$(TARGET)"; exit 1; }
 
 # ASan and UBSan build.

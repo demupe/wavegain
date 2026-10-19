@@ -1,6 +1,12 @@
 #ifndef MISC_H
 #define MISC_H
 
+#if defined(__GNUC__) || defined(__clang__)
+#define WG_UNUSED __attribute__((unused))
+#else
+#define WG_UNUSED
+#endif
+
 #ifdef _WIN32
 /* <stdint.h> rather than __int64: MinGW only defines __int64 once a system
  * header has been included, and dither.c includes this header first. */

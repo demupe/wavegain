@@ -5,7 +5,9 @@ Validation
 ----------
 - Validate official ITU/EBU conformance signals across supported rates and
   channel layouts; native-reference equality alone is not certification.
-- Extend native GCC/MSVC/Linux, Intel Mac and other x64 CPU validation.
+- Extend true-peak checks to broadband transients and independent sinc
+  reconstruction; define the bandwidth/error contract for gain ceilings.
+- Extend native GCC/Linux, Intel Mac and other x64 CPU validation.
   Check extended-precision/x87 rounding and broaden cached stereo-history
   and handwritten SSE2/AVX2 analysis kernels and dense AVX2 interpolation
   measurements beyond Windows x64 Clang.
@@ -17,6 +19,12 @@ Validation
 
 Implementation and maintenance
 -------------------------------
+- Broaden cascaded K-weighting and extended peak performance measurements
+  across native compilers, CPUs and sustained real content.
+- Review shaped legacy dither spectra and worst-case shaper headroom;
+  retain explicit control of the added noise.
+- Further reduce extended true-peak interpolation overhead;
+  agreement between finite filters alone is not an error guarantee.
 - Encapsulate analysis/dither/RNG globals before library or parallel use;
   define deterministic album and RNG ordering first.
 - Profile noise-shaped dither and further common-path specialization while

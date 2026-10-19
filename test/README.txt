@@ -38,9 +38,13 @@ filter/loudness drivers. Windows wrappers quote compiler paths automatically.
 
 verified-release also runs feature_dsp with the release flags, checking FIR
 output and complete histories in default, SSE2-only and C-only builds.
+It also checks FIR backend selection, independent peak-amplitude accuracy,
+K-weighting, fractional timing and extended peak reconstruction.
 
-Core coverage (19 test groups on Windows)
+Core coverage (23 test groups on Windows)
 -----------------------------------------
+fundamental_dsp       Independent K-weighting, fractional window timing,
+                      extended reconstruction and conservative screening checks.
 docs                  Generated help/manuals and option documentation.
 support_contracts     Normal rejection vs crash/sanitizer error; Python -O guard.
 filters               All-rate scalar/SIMD/mono/history equivalence and the
@@ -57,6 +61,11 @@ feature_dsp           Decimator history bits, pass/stop bands and rate dither;
                       default, SSE2-only and C-only builds, lookahead/ring-wrap
                       boundaries, tiny chunks and zero-frame calls.
 gain_kernel           Quantizer rounding/clamping/DC and non-finite input.
+fir_backend           x86 FIR selection, including FMA-capable targets.
+peak_accuracy         Independent known-amplitude/phase signals at 44.1..192 kHz,
+                      irregular chunks, precise/fast modes and combined/peak-only
+                      measurement; corpus under-read budgets 0.08/0.5 dB are
+                      regression checks, not universal accuracy guarantees.
 windows_errors        Win32 diagnostics and directory-link classification. [Windows]
 output_publish        No-clobber publication; Windows post-preflight collision,
                       POSIX native/link/copy fallbacks and injected I/O failures.
@@ -68,6 +77,10 @@ followup_regressions  Six 2026-10-18 audit findings and supported format control
 edge_regressions      Legacy malformed WAVs, strict stdin/seekable EOF recovery,
                       exact stdout WAV/AIFF/Wave64, original hard-link IDs,
                       400 ms LUFS and numeric-option/quantization boundaries.
+precision_regressions Cross-file dither state, partial stereo shaper histories,
+                      mixed mono/stereo album DC and signed 32-bit endpoints;
+                      small corrections, mixed rates, long 32-bit DC means,
+                      11025 Hz duration and extended quantized-output peaks.
 windows_paths         Junction cycles and physical output containment. [Windows]
 windows_files         Real sharing-lock/read-only failures retain original and
                       completed output; retry after release succeeds. [Windows]
@@ -117,9 +130,13 @@ floating_point_exception.wav and memory_leak.wav are now exercised by edge
 regressions on copies. outsox.wav is retained as a larger manual fixture;
 it is not an independent audio-quality oracle or a core benchmark.
 
-Native Windows x64 Clang core checks pass. Native macOS ARM64 core,
+Native Windows x64 Clang core checks pass. tools/check_msvc.py runs the same
+C/CLI inventory with native cl from an x64/x86 VS Developer Command Prompt,
+and compares native filter/loudness reference states. The modern solution is
+mswindows/WaveGain.sln (Visual Studio 2022+); legacy Intel project files are
+historical. Native macOS ARM64 core,
 ASan/UBSan and FFmpeg interoperability were previously validated; dated
 measurement details are retained locally under ../local-research/.
 Open validation includes official EBU conformance signals, real SMB/cloud and
-ACL behavior, native GCC/MSVC, Linux execution, other x64 CPUs,
+ACL behavior, native GCC, Linux execution, other x64 CPUs,
 and perceptual dither evaluation. See ../TODO for current open work.

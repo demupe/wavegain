@@ -22,6 +22,17 @@ or .NET runtime is required.
   gating history rather than averaging track LUFS. Memory grows with duration.
 - SIMD retains each channel/phase's operation order. FP contraction and
   reassociation are disabled; do not build with fast-math.
+- The CLI configures a 385-tap, 16x true-peak interpolator by default.
+  `--true-peak-mode fast` selects 49 taps/4x at every rate, including 192 kHz.
+  The selected mode covers input and output meters and never skips frames.
+  LUFS/ReplayGain calculations do not change. Fast can under-read by more
+  than the 0.1 dB gain reserve; it is not the sampled ReplayGain `--fast` mode.
+  Low-level bundled-library reference tests retain their original filters.
+  AVX2 processes four independent frames for generic phase layouts too.
+  Known-amplitude/phase and independent sinc reconstruction checks complement
+  kernel equality. A finite FIR plus 0.1 dB reserve is not a universal bound
+  on continuous-time peaks or later sample-rate conversion; higher precision
+  increases true-peak CPU cost and formal conformance validation remains open.
 - Dense 4x interpolation validates its coefficient layout. AArch64 and
   x86_64 schedule four independent frames. On supported x86_64 compilers,
   runtime CPU detection selects an AVX2 function for this block only; other

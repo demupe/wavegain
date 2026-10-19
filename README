@@ -1,4 +1,4 @@
-WaveGain v1.5.1
+WaveGain v1.5.2
 ===============================================================================
 
 Japanese documentation / 日本語版: [README.ja.md](README.ja.md)
@@ -88,6 +88,19 @@ replacement. Peak prevention may leave output below the requested LUFS target.
 With --stdout, already-emitted audio cannot be retracted; a failed final check
 returns a nonzero exit status.
 
+--true-peak-mode precise (default) uses 16x, 385-tap interpolation for lower
+high-frequency under-read. --true-peak-mode fast uses 4x, 49-tap interpolation
+at EVERY supported rate, including 192 kHz. Either option enables true peak.
+Both analyze every frame and use the selected meter for input and quantized
+output; ReplayGain/LUFS arithmetic is unchanged. This differs from --fast,
+which samples only part of the input and cannot be combined with true peak.
+For example: wavegain -y --true-peak-mode fast input.wav
+
+Fast mode trades peak accuracy for speed. Its under-read can exceed the 0.1 dB
+reserve, so choose precise when high-frequency peak accuracy is important.
+Neither finite FIR estimate guarantees every continuous-time reconstruction
+or later sample-rate conversion; official conformance testing is pending.
+
 DC correction is track-based by default; -q selects album DC correction and
 -p disables it. With -p, LUFS and true-peak measurement share the first
 analysis read. Measuring after DC correction requires another read.
@@ -167,11 +180,14 @@ The install target uses GNU-style install options. On macOS, the built binary
 can also be copied to a directory on your PATH.
 
 Windows builds can use MinGW-w64 GCC in an MSYS2 MINGW64 shell with the same
-Makefile, or the project files in mswindows/. MinGW release builds link libssp
+Makefile, or open mswindows/WaveGain.sln in Visual Studio 2022 or later (C17
+support required). The modern project includes all src/*.c and supports Win32
+and x64 with precise floating-point settings. MinGW release builds link libssp
 statically for _FORTIFY_SOURCE and need only system DLLs. Output, measurement
 and regression checks pass on native Windows ARM64 with LLVM-MinGW Clang;
-x64 execution was checked through Windows emulation. Native MSVC/GCC and x64
-hardware remain validation follow-ups. Debian packaging in debian/ is historical and
+x64 and native MSVC Win32/x64 checks are available through the shared inventory.
+Run python tools/check_msvc.py from the matching VS Developer Command Prompt.
+Other compiler/CPU combinations remain validation follow-ups. Debian packaging in debian/ is historical and
 unmaintained; build from source rather than relying on the old debuild recipe.
 
 Tests and development
@@ -241,6 +257,33 @@ and HTML manual. Do not edit the option reference below directly.
 
 Behavior changes
 -------------------------------------------------------------------------------
+Version 1.5.2:
+* DC analysis uses exact integer-PCM block sums and compensated block addition.
+  Every nonzero requested gain/DC correction is applied, including adjustments
+  below the former 0.1 dB and 16-bit DC thresholds. More files may be rewritten.
+* Album DC uses time weighting per actual channel, so equal-duration material
+  has equal weight regardless of storage sample rate.
+* LUFS K-weighting uses cascaded biquads for improved high-rate stability.
+  11025 Hz measurement uses exact 400 ms windows and fractional 100 ms hops.
+* Unshaped legacy dither uses full-amplitude high-pass TPDF at every bit depth,
+  including 24/32 bits. Dither remains off by default; shaped amplitudes remain.
+* --true-peak-mode extended adds screened longer 16x reconstruction for
+  transients, at higher CPU cost. It remains a finite estimate. Precise and
+  fast retain their existing FIR interpolation.
+* Reset all per-file legacy dither history and keep stereo noise-shaping phase
+  aligned at partial blocks, preventing cross-format transients and tail errors.
+* Preserve the signed 32-bit PCM minimum (-2147483648) instead of clamping it
+  one LSB above the format's valid negative endpoint.
+* By default, true-peak measurement uses 16x, 385-tap interpolation at every rate,
+  reducing high-frequency under-read. Peak-limited gain/output can change;
+  independent tone/reconstruction checks complement native kernel equality.
+* High-rate ReplayGain FIRs explicitly disable FMA contraction. FMA-capable
+  targets now retain the SSE2/AVX2 fast paths. Previously contracted FIR builds
+  can change rounding; non-FMA builds preserve their existing arithmetic.
+* Native MSVC builds use portable unused annotations and explicit filter
+  precision controls. A modern Win32/x64 solution replaces the Intel project
+  entry point; the older .vcproj/.icproj files are historical.
+
 Version 1.5.1:
 * GNU-compatible x86_64 builds keep ReplayGain filter histories in SSE2
   registers and evaluate eight high-rate FIR outputs in parallel, selecting
@@ -357,7 +400,7 @@ Documentation (from wavegain --help)
 -------------------------------------------------------------------------------
 Generated from doc/help.json; run make docs after editing.
 
-WaveGain v1.5.1
+WaveGain v1.5.2
  Usage: wavegain [options] input.wav [...] (also .w64)
 
  OPTIONS
@@ -404,9 +447,16 @@ WaveGain v1.5.1
                           Silence/below-gate material uses manual gain only.
       --true-peak         Measure DC-corrected true peak and limit linear gain
                           to -1 dBTP by default, even with --noclip.
+      --true-peak-mode X  precise (default, 16x), fast (4x), or extended.
+                          Implies --true-peak; applies to output checks too.
+                          extended adds a longer 16x FIR with screened evaluation.
+                          It can cost substantially more CPU. All analyze all frames.
+                          All are finite estimates, including extended;
+                          under-read can exceed the 0.1 dB gain reserve.
+                          Separate from --fast; cannot combine with it.
       --peak-ceiling X    Set true-peak ceiling (-60..0 dBTP); implies --true-peak.
                           A 0.1 dB margin plus quantization room is reserved.
-                          Actual quantized output is checked against the ceiling.
+                          Quantized output is checked with the selected peak meter.
                           A ceiling too low for the output bit depth is rejected.
                           stdout may contain partial output on a failed check.
                           LUFS/true peak require full analysis. Stdin is calculation
@@ -418,6 +468,8 @@ WaveGain v1.5.1
                           sample-rate-dependent coefficient; -d 1 is unshaped.
                           Light/Medium/Heavy knees: 10/6/3 kHz, respectively.
                           This is a separate family from the legacy F44 filters.
+                          Legacy -d 1 uses full high-pass TPDF at every bit depth;
+                          legacy -d 2..4 retain their F44 noise shaping.
 
 [Builds with recursive/pattern support]
   -z, --recursive  Search for files recursively, each folder as an album

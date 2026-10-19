@@ -107,7 +107,7 @@ Int64_t dither_output(int dithering, int shapingtype, int i, double Sum, int k, 
 		if(!shapingtype) {
 			double  tmp = Random_Equi ( Dither.Dither );
 			Sum2 = tmp - Dither.LastRandomNumber [k];
-			Dither.LastRandomNumber [k] = (int)tmp;
+			Dither.LastRandomNumber [k] = tmp;
 			Sum2 = Sum += Sum2;
 			val = ROUND64 (Sum2)  &  Dither.Mask;
 		}
@@ -140,8 +140,7 @@ static int apply_plain_gain(double **pcm, int channels, int frames,
 {
 	int ch, i, shift = 32 - bits;
 	Int64_t maximum = (INT64_C(1) << (bits - 1)) - 1;
-	/* Preserve the legacy symmetric 32-bit saturation at +/-2147483647. */
-	Int64_t minimum = bits == 32 ? -maximum : -(INT64_C(1) << (bits - 1));
+	Int64_t minimum = -(INT64_C(1) << (bits - 1));
 	for (ch = 0; ch < channels; ch++)
 		for (i = 0; i < frames; i++)
 			if (!isfinite(pcm[ch][i])) return 0;
@@ -216,7 +215,8 @@ int measure_file(FILE_LIST *file, const double *dc, const SETTINGS *settings)
 	}
 	in = fopen(file->filename, "rb");
 	if (!in || !open_audio_file(in, &opt) || opt.channels != file->channels || opt.rate != file->rate) goto done;
-	file->meter = wg_meter_create((unsigned long)opt.rate, opt.channels, settings->lufs, settings->true_peak);
+	file->meter = wg_meter_create_mode((unsigned long)opt.rate, opt.channels, settings->lufs,
+		settings->true_peak, settings->true_peak_mode);
 	if (!file->meter) goto done;
 	for (ch = 0; ch < opt.channels; ch++) if (!(pcm[ch] = malloc(BUFFER_LEN * sizeof(double)))) goto done;
 	while ((count = opt.read_samples(opt.readdata, pcm, BUFFER_LEN, 0, 0)) > 0) {
@@ -229,7 +229,7 @@ int measure_file(FILE_LIST *file, const double *dc, const SETTINGS *settings)
 	    !wg_meter_finish(file->meter, &file->loudness, &file->true_peak)) goto done;
 measured:
 	if (settings->lufs) {
-		if (frames < (unsigned long long)((opt.rate + 5) / 10) * 4) {
+		if (frames < ((unsigned long long)opt.rate * 4 + 5) / 10) {
 			fprintf(stderr, " LUFS measurement requires at least 400 ms: %s.\n", file->filename); goto done;
 		}
 		file->raw_gain = isfinite(file->loudness) ? settings->target_lufs - file->loudness : 0.;
@@ -286,6 +286,7 @@ int get_gain(const char *filename, double *track_peak, double *track_gain,
     Int64_t step;
     long count;
     int high_rate = 0;
+    double dc_compensation[2] = {0., 0.};
     WG_DECIMATOR decimator;
     opt.force = settings->force;
     opt.std_in = !strcmp(filename, "-");
@@ -338,7 +339,8 @@ int get_gain(const char *filename, double *track_peak, double *track_gain,
         offset[ch] = dc_offset[ch] = 0.;
     }
     if (settings->no_offset && (settings->lufs || settings->true_peak)) {
-        info->meter = wg_meter_create((unsigned long)opt.rate, opt.channels, settings->lufs, settings->true_peak);
+        info->meter = wg_meter_create_mode((unsigned long)opt.rate, opt.channels, settings->lufs,
+            settings->true_peak, settings->true_peak_mode);
         if (!info->meter) goto done;
     }
     while (!sampled || iteration < 200) {
@@ -352,9 +354,9 @@ int get_gain(const char *filename, double *track_peak, double *track_gain,
 			double minimum = info->minimum[ch], maximum = info->maximum[ch];
 			/* Retain per-addition binary64 rounding on extended-precision targets. */
 #if defined(FLT_EVAL_METHOD) && FLT_EVAL_METHOD == 0
-			double sum = offset[ch];
+			double sum = 0.;
 #else
-			volatile double sum = offset[ch];
+			volatile double sum = 0.;
 #endif
 			double *samples = buffer[ch];
 			for (j = 0; j < count; j++) {
@@ -366,7 +368,14 @@ int get_gain(const char *filename, double *track_peak, double *track_gain,
 				if (!settings->lufs && !high_rate) samples[j] = value * 32767.;
 			}
 			info->minimum[ch] = minimum; info->maximum[ch] = maximum;
-			offset[ch] = sum;
+			/* Integer PCM block sums are exact through 32 bits. Compensate
+			 * only the much shorter sequence of block sums. */
+			{
+				volatile double part = sum - dc_compensation[ch];
+				volatile double next = offset[ch] + part;
+				dc_compensation[ch] = (next - offset[ch]) - part;
+				offset[ch] = next;
+			}
 		}
         if (!settings->lufs) {
             int analysis_count = (int)count;
@@ -425,7 +434,7 @@ double audio_duration(const char *filename, const SETTINGS *settings)
  * radio_gain value is used.
  */
 int write_gains(const char *filename, double radio_gain, double audiophile_gain,
-                double TitlePeak __attribute__((unused)),
+                double TitlePeak WG_UNUSED,
                 double *dc_offset, double *album_dc_offset, SETTINGS *settings)
 {
 	wavegain_opt *wg_opts = calloc(1, sizeof(*wg_opts));
@@ -442,6 +451,7 @@ int write_gains(const char *filename, double radio_gain, double audiophile_gain,
 	double       Gain;
 	double       scale;
 	Uint64_t     processed = 0;
+	int          dither_phase = 0;
 	double       last_update = -1.;
 	double       wrap_prev_pos = 0;
 	double       wrap_prev_neg = 0;
@@ -522,7 +532,7 @@ int write_gains(const char *filename, double radio_gain, double audiophile_gain,
 				}
 				else if (wg_opts->format == WAV_FMT_32BIT) {
 					wrap_prev_pos = 0x7fffffff;
-					wrap_prev_neg = -0x7fffffff;
+					wrap_prev_neg = -2147483648.;
 				}
 				else if (wg_opts->format == WAV_FMT_FLOAT) {
 					wrap_prev_pos = 1 - (1 / 0x80000000);
@@ -562,7 +572,7 @@ int write_gains(const char *filename, double radio_gain, double audiophile_gain,
 				wg_opts->samplesize = 32;
 				wg_opts->endianness = LITTLE;
 				wrap_prev_pos = 0x7fffffff;
-				wrap_prev_neg = -0x7fffffff;
+				wrap_prev_neg = -2147483648.;
 				break;
 			case WAV_FMT_FLOAT:
 				wg_opts->format = WAV_FMT_FLOAT;
@@ -591,7 +601,8 @@ int write_gains(const char *filename, double radio_gain, double audiophile_gain,
 			Init_Rate_Dither(wg_opts->rate, settings->shapingtype);
 		}
 		if (settings->true_peak) {
-			output_meter = wg_meter_create((unsigned long)wg_opts->rate, wg_opts->channels, 0, 1);
+			output_meter = wg_meter_create_mode((unsigned long)wg_opts->rate, wg_opts->channels,
+				0, 1, settings->true_peak_mode);
 			if (!output_meter) goto exit;
 		}
 
@@ -675,7 +686,7 @@ int write_gains(const char *filename, double radio_gain, double audiophile_gain,
 			else {
 				int   convsize = BUFFER_LEN;
 				int   j,
-				      i = 0,
+				      i,
 				      k;
 				int   bout = (readcount < convsize ? readcount : convsize);
 
@@ -693,6 +704,8 @@ int write_gains(const char *filename, double radio_gain, double audiophile_gain,
 						goto conversion_done;
 					}
 				} else for(k = 0; k < wg_opts->channels; k++) {
+					/* Both channel histories follow the same frame position. */
+					i = dither_phase;
 					for(j = 0; j < bout; j++, i++) {
 						Int64_t val;
 						double Sum;
@@ -736,6 +749,7 @@ int write_gains(const char *filename, double radio_gain, double audiophile_gain,
 						}
 					}
 				}
+				dither_phase = (dither_phase + bout) & 31;
 				sample_buffer = output_to_PCM(pcm, sample_buffer, wg_opts->channels,
 						bout, wg_opts->format);
 				if (output_meter) {

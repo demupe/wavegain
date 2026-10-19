@@ -24,7 +24,7 @@ typedef struct {
 	float         Dither;
 	float         ErrorHistory     [2] [16];       // max. 2 channels, 16th order Noise shaping
 	float         DitherHistory    [2] [16];
-	int           LastRandomNumber [2];
+	double        LastRandomNumber [2];
 } dither_t;
 
 extern dither_t            Dither;

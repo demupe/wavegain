@@ -82,6 +82,33 @@ static double wg_tp_dense_avx2(const double *src, unsigned int frames,
 		return fmax(pair[0], pair[1]);
 	}
 }
+
+/* The CLI's longer 16x filter has a different phase layout. Parallelize
+ * independent frames, retaining every phase's original accumulation order. */
+__attribute__((target("avx2")))
+static double wg_tp_generic_avx2(const double *src, unsigned int frames,
+	const interpolator *ip, double top)
+{
+	typedef double wg_vec4 __attribute__((vector_size(32)));
+	wg_vec4 peaks = {top, top, top, top};
+	unsigned int i, phase, j;
+	for (i = 0; i < frames; i += 4) {
+		for (phase = 0; phase < ip->factor; phase++) {
+			const interp_filter *f = &ip->filter[phase];
+			wg_vec4 value = {0., 0., 0., 0.};
+			for (j = 0; j < f->count; j++) {
+				wg_vec4 input;
+				memcpy(&input, src + i - f->index[j], sizeof(input));
+				value += input * f->coeff[j];
+			}
+			peaks = _mm256_max_pd(peaks, _mm256_andnot_pd(_mm256_set1_pd(-0.), value));
+		}
+	}
+	{
+		wg_vec pair = _mm_max_pd(_mm256_castpd256_pd128(peaks), _mm256_extractf128_pd(peaks, 1));
+		return fmax(pair[0], pair[1]);
+	}
+}
 #endif
 #endif
 
@@ -114,14 +141,14 @@ static void wg_fast_true_peak(ebur128_state *st, const double *src, size_t frame
 	}
 #endif
 #ifdef WG_TP_HAVE_AVX2
-	int use_avx2 = dense && __builtin_cpu_supports("avx2");
+	int use_avx2 = __builtin_cpu_supports("avx2");
 #endif
 	for (start = 0; start < frames; start += 64) {
 		unsigned int n = frames - start > 64 ? 64 : (unsigned int)(frames - start);
 		for (ch = 0; ch < st->channels; ch++) {
 			double history[25 + 64], top = st->d->prev_true_peak[ch];
 			unsigned int j, i, phase;
-			/* The 49-tap 2x/4x interpolators have at most 25 history slots. */
+			/* Library 2x/4x and CLI 16x interpolators use at most 25 slots. */
 			{
 				unsigned int at = ip->zi;
 				for (j = 0; j < ip->delay; j++) {
@@ -153,7 +180,8 @@ static void wg_fast_true_peak(ebur128_state *st, const double *src, size_t frame
 #ifdef WG_TP_HAVE_AVX2
 				if (use_avx2 && i + 4 <= n) {
 					unsigned int count = (n - i) & ~3u;
-					double peak = wg_tp_dense_avx2(history + ip->delay + i, count, ip, top);
+					double peak = dense ? wg_tp_dense_avx2(history + ip->delay + i, count, ip, top) :
+						wg_tp_generic_avx2(history + ip->delay + i, count, ip, top);
 					peaks = (wg_vec){peak, peak};
 					i += count;
 				}
@@ -253,30 +281,29 @@ static void wg_ebur_filter_double(ebur128_state *st, const double *src, size_t f
 	if ((st->mode & EBUR128_MODE_TRUE_PEAK) == EBUR128_MODE_TRUE_PEAK) wg_fast_true_peak(st, src, frames);
 #ifdef WG_METER_PAIR
 	if (st->channels == 2 && st->d->channel_map[0] != EBUR128_UNUSED && st->d->channel_map[1] != EBUR128_UNUSED) {
-		wg_vec s1 = {st->d->v[0][1], st->d->v[1][1]}, s2 = {st->d->v[0][2], st->d->v[1][2]};
-		wg_vec s3 = {st->d->v[0][3], st->d->v[1][3]}, s4 = {st->d->v[0][4], st->d->v[1][4]}, v = {0., 0.};
+		wg_vec v[8];
+		for (i = 0; i < 8; i++) {
+			v[i][0] = st->d->v[0][i]; v[i][1] = st->d->v[1][i];
+		}
 		for (i = 0; i < frames; i++) {
-			wg_vec result;
-			v = wg_load(src + 2 * i) - st->d->a[1] * s1 - st->d->a[2] * s2 - st->d->a[3] * s3 - st->d->a[4] * s4;
-			result = st->d->b[0] * v + st->d->b[1] * s1 + st->d->b[2] * s2 + st->d->b[3] * s3 + st->d->b[4] * s4;
-			memcpy(out + 2 * i, &result, sizeof(result));
-			s4 = s3; s3 = s2; s2 = s1; s1 = v;
+			wg_vec x = wg_load(src + 2 * i);
+			wg_vec y = st->d->shelf_b[0] * x + st->d->shelf_b[1] * v[0] +
+				st->d->shelf_b[2] * v[1] - st->d->shelf_a[0] * v[2] - st->d->shelf_a[1] * v[3];
+			wg_vec z = y - 2. * v[4] + v[5] - st->d->highpass_a[0] * v[6] - st->d->highpass_a[1] * v[7];
+			memcpy(out + 2 * i, &z, sizeof(z));
+			v[1] = v[0]; v[0] = x; v[3] = v[2]; v[2] = y;
+			v[5] = v[4]; v[4] = y; v[7] = v[6]; v[6] = z;
 		}
 		for (c = 0; c < 2; c++) {
-			st->d->v[c][0] = v[c]; st->d->v[c][1] = s1[c]; st->d->v[c][2] = s2[c];
-			st->d->v[c][3] = s3[c]; st->d->v[c][4] = s4[c];
+			for (i = 0; i < 8; i++) st->d->v[c][i] = v[i][c];
 			FLUSH_MANUALLY
 		}
 	} else
 #endif
 	for (c = 0; c < st->channels; c++) {
-		double *v = st->d->v[c];
 		if (st->d->channel_map[c] == EBUR128_UNUSED) continue;
-		for (i = 0; i < frames; i++) {
-			v[0] = src[i * st->channels + c] - st->d->a[1] * v[1] - st->d->a[2] * v[2] - st->d->a[3] * v[3] - st->d->a[4] * v[4];
-			out[i * st->channels + c] = st->d->b[0] * v[0] + st->d->b[1] * v[1] + st->d->b[2] * v[2] + st->d->b[3] * v[3] + st->d->b[4] * v[4];
-			v[4] = v[3]; v[3] = v[2]; v[2] = v[1]; v[1] = v[0];
-		}
+		for (i = 0; i < frames; i++)
+			out[i * st->channels + c] = ebur128_k_sample(st, c, src[i * st->channels + c]);
 		FLUSH_MANUALLY
 	}
 	TURN_OFF_FTZ

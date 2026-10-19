@@ -11,11 +11,14 @@ from test_support import ROOT, SRC, DEFAULT_BINARY, resolve_binary
 
 # Each test's included .c files are intentionally excluded from its link list.
 C_TESTS = {
+    'fundamental_dsp': ['test/fundamental_dsp.c'],
     'portability': ['test/portability.c', 'w64.c'],
     'wave64': ['test/wave64.c'],
     'review_io': ['test/review_io.c', 'w64.c', 'wavegain.c', 'gain_analysis.c',
                   'dither.c', 'misc.c', 'loudness.c', 'resample.c', 'output.c'],
     'feature_dsp': ['test/feature_dsp.c', 'resample.c'],
+    'fir_backend': ['test/fir_backend.c'],
+    'peak_accuracy': ['test/peak_accuracy.c', 'loudness.c'],
     'gain_kernel': ['test/gain_kernel.c', 'audio.c', 'w64.c', 'gain_analysis.c',
                     'dither.c', 'misc.c', 'loudness.c', 'resample.c', 'output.c'],
     'windows_errors': ['test/windows_errors.c', 'misc.c', 'output.c'],
@@ -24,7 +27,8 @@ C_TESTS = {
                             *[p.name for p in sorted(SRC.glob('*.c')) if p.name != 'main.c']],
 }
 CLI_TESTS = ('todo_regressions', 'review_regressions', 'feature_regressions',
-             'followup_regressions', 'edge_regressions', 'windows_paths', 'windows_files')
+             'followup_regressions', 'edge_regressions', 'precision_regressions',
+             'windows_paths', 'windows_files')
 CORE = ('docs', 'support_contracts', 'filters', 'loudness', *C_TESTS, *CLI_TESTS)
 INTEROP = ('wave64_interop', 'filter_interop', 'riff_interop', 'feature_interop')
 WINDOWS_ONLY = {'windows_errors', 'command_regressions', 'windows_paths', 'windows_files'}
@@ -86,6 +90,12 @@ def main():
                 run([*shlex.split(args.cc), *shlex.split(args.cflags), '-UNDEBUG',
                      '-o', binary, *sources, *shlex.split(args.ldflags)])
                 run([binary])
+                if name == 'fundamental_dsp':
+                    for flags in (['-DWG_REFINE_AVX2=0'],
+                                  ['-DWG_REFINE_AVX2=0', '-DWG_PEAK_REFINE_FULL']):
+                        run([*shlex.split(args.cc), *shlex.split(args.cflags), '-UNDEBUG',
+                             *flags, '-o', binary, *sources, *shlex.split(args.ldflags)])
+                        run([binary])
                 if name == 'feature_dsp':
                     # Exercise SSE2-only dispatch and portable C on AVX2 hosts.
                     for variant, override in [('sse2', '-UWAVEGAIN_X86_AVX2'),

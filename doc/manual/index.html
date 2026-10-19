@@ -1,11 +1,11 @@
 <!doctype html>
 <html lang="en"><meta charset="utf-8">
-<title>WaveGain 1.5.1</title>
+<title>WaveGain 1.5.2</title>
 <style>body{max-width:76em;margin:2em auto;padding:0 1em;font:16px system-ui}pre{white-space:pre-wrap}</style>
-<h1>WaveGain 1.5.1</h1>
+<h1>WaveGain 1.5.2</h1>
 <p>ReplayGain adjusts the audio samples. Applying gain and undoing it are lossy.</p>
 <p>Generated from doc/help.json. <a href="legacy-notes.txt">Historical manual notes</a>.</p>
-<pre>WaveGain v1.5.1
+<pre>WaveGain v1.5.2
  Usage: wavegain [options] input.wav [...] (also .w64)
 
  OPTIONS
@@ -52,9 +52,16 @@
                           Silence/below-gate material uses manual gain only.
       --true-peak         Measure DC-corrected true peak and limit linear gain
                           to -1 dBTP by default, even with --noclip.
+      --true-peak-mode X  precise (default, 16x), fast (4x), or extended.
+                          Implies --true-peak; applies to output checks too.
+                          extended adds a longer 16x FIR with screened evaluation.
+                          It can cost substantially more CPU. All analyze all frames.
+                          All are finite estimates, including extended;
+                          under-read can exceed the 0.1 dB gain reserve.
+                          Separate from --fast; cannot combine with it.
       --peak-ceiling X    Set true-peak ceiling (-60..0 dBTP); implies --true-peak.
                           A 0.1 dB margin plus quantization room is reserved.
-                          Actual quantized output is checked against the ceiling.
+                          Quantized output is checked with the selected peak meter.
                           A ceiling too low for the output bit depth is rejected.
                           stdout may contain partial output on a failed check.
                           LUFS/true peak require full analysis. Stdin is calculation
@@ -66,6 +73,8 @@
                           sample-rate-dependent coefficient; -d 1 is unshaped.
                           Light/Medium/Heavy knees: 10/6/3 kHz, respectively.
                           This is a separate family from the legacy F44 filters.
+                          Legacy -d 1 uses full high-pass TPDF at every bit depth;
+                          legacy -d 2..4 retain their F44 noise shaping.
 
 [Builds with recursive/pattern support]
   -z, --recursive  Search for files recursively, each folder as an album

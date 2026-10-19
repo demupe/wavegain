@@ -292,13 +292,15 @@ static int remember_inputs(FILE_LIST *files, SETTINGS *settings)
 	return 1;
 }
 
-int process_files(FILE_LIST* file_list, SETTINGS* settings, const char* dir __attribute__((unused)))
+int process_files(FILE_LIST* file_list, SETTINGS* settings, const char* dir WG_UNUSED)
 {
 	FILE_LIST* file;
 	int failed = 0;
 	double     audiophile_gain = 0.,
 	           scale = 1.,
-	           album_dc_offset[2] = {0., 0.};
+	           album_dc_offset[2] = {0., 0.},
+	           album_channel_seconds[2] = {0., 0.},
+	           album_dc_compensation[2] = {0., 0.};
 
 	settings->album_peak = NO_PEAK;
 
@@ -343,15 +345,24 @@ int process_files(FILE_LIST* file_list, SETTINGS* settings, const char* dir __at
 				}
 			}
 
-			album_dc_offset[0] += file->offset[0];
-			album_dc_offset[1] += file->offset[1];
+			{
+				int ch;
+				for (ch = 0; ch < file->channels; ch++) {
+					volatile double part = file->offset[ch] / file->rate - album_dc_compensation[ch];
+					volatile double next = album_dc_offset[ch] + part;
+					album_dc_compensation[ch] = (next - album_dc_offset[ch]) - part;
+					album_dc_offset[ch] = next;
+					album_channel_seconds[ch] += file->duration;
+				}
+			}
 		}
 
         if (settings->first_file) return failed ? -1 : 0;
-        if (total_samples > 0.) {
-            album_dc_offset[0] /= total_samples;
-            album_dc_offset[1] /= total_samples;
-        }
+        /* A mono file contributes no samples to the right-channel mean. */
+        if (album_channel_seconds[0] > 0.)
+            album_dc_offset[0] /= album_channel_seconds[0];
+        if (album_channel_seconds[1] > 0.)
+            album_dc_offset[1] /= album_channel_seconds[1];
         settings->album_peak = 0.;
         for (file = file_list; file; file = file->next_file) {
             const double *dc;
@@ -415,9 +426,9 @@ int process_files(FILE_LIST* file_list, SETTINGS* settings, const char* dir __at
                 dc = settings->adc ? album_dc_offset : file->dc_offset;
                 gain = settings->audiophile ? audiophile_gain : file->track_gain;
                 correction = !settings->no_offset &&
-                    (fabs(dc[0]) > 1. / 32768. || fabs(dc[1]) > 1. / 32768.);
+                    (dc[0] != 0. || (file->channels == 2 && dc[1] != 0.));
                 file->apply = file->output || settings->true_peak || settings->lufs || settings->need_to_process || settings->force || settings->limiter ||
-                              fabs(gain) >= .1 || correction;
+                              gain != 0. || correction;
                 if (file->apply) settings->progress_total += file->duration;
             }
             for (file = file_list; file; file = file->next_file) {
@@ -511,7 +522,7 @@ static void usage(void)
 
 
 enum { OPT_OUTPUT = 256, OPT_OUTPUT_DIR, OPT_TRUE_PEAK, OPT_PEAK_CEILING,
-       OPT_LUFS, OPT_TARGET_LUFS, OPT_DITHER_PROFILE };
+       OPT_LUFS, OPT_TARGET_LUFS, OPT_DITHER_PROFILE, OPT_TRUE_PEAK_MODE };
 
 static int parse_level(const char *text, double *value, double minimum, double maximum)
 {
@@ -525,6 +536,7 @@ static const struct option long_options[] = {
 	{"output", 1, NULL, OPT_OUTPUT},
 	{"output-dir", 1, NULL, OPT_OUTPUT_DIR},
 	{"true-peak", 0, NULL, OPT_TRUE_PEAK},
+	{"true-peak-mode", 1, NULL, OPT_TRUE_PEAK_MODE},
 	{"peak-ceiling", 1, NULL, OPT_PEAK_CEILING},
 	{"lufs", 0, NULL, OPT_LUFS},
 	{"target-lufs", 1, NULL, OPT_TARGET_LUFS},
@@ -663,6 +675,12 @@ int main(int argc, char** argv)
 			case OPT_OUTPUT: settings.output_file = optarg; break;
 			case OPT_OUTPUT_DIR: settings.output_dir = optarg; break;
 			case OPT_TRUE_PEAK: settings.true_peak = 1; break;
+			case OPT_TRUE_PEAK_MODE:
+				if (!strcmp(optarg, "precise")) settings.true_peak_mode = WG_PEAK_PRECISE;
+				else if (!strcmp(optarg, "fast")) settings.true_peak_mode = WG_PEAK_FAST;
+				else if (!strcmp(optarg, "extended")) settings.true_peak_mode = WG_PEAK_EXTENDED;
+				else { fprintf(stderr, " --true-peak-mode requires precise, fast or extended.\n"); return EXIT_FAILURE; }
+				settings.true_peak = 1; break;
 			case OPT_LUFS: settings.lufs = 1; break;
 			case OPT_PEAK_CEILING:
 				if (!parse_level(optarg, &settings.peak_ceiling, -60., 0.)) {
@@ -919,6 +937,12 @@ int main(int argc, char** argv)
 		write_log("\n");
 	}
 
+	if (settings.true_peak) {
+		const char *mode = settings.true_peak_mode == WG_PEAK_FAST ? "fast" :
+			settings.true_peak_mode == WG_PEAK_EXTENDED ? "extended" : "precise";
+		fprintf(stderr, " True-peak mode: %s\n", mode);
+		if (write_to_log) write_log(" True-peak mode: %s\n", mode);
+	}
 	if (!strcmp(argv[optind], "-")) {
 		FILE_LIST info = {0};
 		int status;
