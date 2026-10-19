@@ -23,6 +23,7 @@
 #include <string.h>
 #include <math.h>
 #include <errno.h>
+#include <stdint.h>
 #include <sys/stat.h>
 #ifndef _WIN32
 #include <unistd.h>
@@ -211,6 +212,7 @@ typedef struct input_identity {
 
 struct seen_input {
 	struct seen_input *next;
+	struct seen_input *path_next, *original_next, *current_next;
 	char *path;
 	INPUT_IDENTITY original, current;
 };
@@ -245,6 +247,95 @@ static int same_input(const INPUT_IDENTITY *a, const INPUT_IDENTITY *b)
 #endif
 }
 
+static uint64_t input_hash_mix(uint64_t value)
+{
+	value = (value ^ (value >> 30)) * UINT64_C(0xbf58476d1ce4e5b9);
+	value = (value ^ (value >> 27)) * UINT64_C(0x94d049bb133111eb);
+	return value ^ (value >> 31);
+}
+
+static size_t input_path_bucket(const char *path, size_t capacity)
+{
+	uint64_t hash = UINT64_C(14695981039346656037);
+	while (*path) { hash ^= (unsigned char)*path++; hash *= UINT64_C(1099511628211); }
+	return (size_t)hash & (capacity - 1);
+}
+
+static size_t input_id_bucket(const INPUT_IDENTITY *id, size_t capacity)
+{
+#ifdef _WIN32
+	uint64_t first = id->volume, second = ((uint64_t)id->high << 32) | id->low;
+#else
+	uint64_t first = (uint64_t)id->device, second = (uint64_t)id->inode;
+#endif
+	return (size_t)(input_hash_mix(first) ^ input_hash_mix(second + UINT64_C(0x9e3779b97f4a7c15))) & (capacity - 1);
+}
+
+static void index_seen_input(SETTINGS *settings, struct seen_input *seen)
+{
+	size_t capacity = settings->seen_capacity;
+	struct seen_input **bucket = settings->seen_buckets + input_path_bucket(seen->path, capacity);
+	seen->path_next = *bucket; *bucket = seen;
+	if (seen->original.valid) {
+		bucket = settings->seen_buckets + capacity + input_id_bucket(&seen->original, capacity);
+		seen->original_next = *bucket; *bucket = seen;
+	}
+	if (seen->current.valid) {
+		bucket = settings->seen_buckets + 2 * capacity + input_id_bucket(&seen->current, capacity);
+		seen->current_next = *bucket; *bucket = seen;
+	}
+}
+
+static int reserve_seen_inputs(SETTINGS *settings)
+{
+	size_t capacity = settings->seen_capacity;
+	struct seen_input **buckets, *seen;
+	if (capacity && settings->seen_count < capacity - capacity / 4) return 1;
+	if (capacity > SIZE_MAX / 2) return 0;
+	capacity = capacity ? capacity * 2 : 64;
+	if (capacity > SIZE_MAX / 3 / sizeof(*buckets)) return 0;
+	buckets = calloc(3 * capacity, sizeof(*buckets));
+	if (!buckets) return 0;
+	free(settings->seen_buckets);
+	settings->seen_buckets = buckets; settings->seen_capacity = capacity;
+	for (seen = settings->seen_inputs; seen; seen = seen->next) index_seen_input(settings, seen);
+	return 1;
+}
+
+static int input_seen(const SETTINGS *settings, const char *path, const INPUT_IDENTITY *id)
+{
+	size_t capacity = settings->seen_capacity;
+	struct seen_input *seen;
+	/* Always check paths: an earlier pathname can now refer to a different ID. */
+	for (seen = settings->seen_buckets[input_path_bucket(path, capacity)]; seen; seen = seen->path_next)
+		if (!strcmp(path, seen->path)) return 1;
+	if (!id->valid) return 0;
+	for (seen = settings->seen_buckets[capacity + input_id_bucket(id, capacity)]; seen; seen = seen->original_next)
+		if (same_input(id, &seen->original)) return 1;
+	for (seen = settings->seen_buckets[2 * capacity + input_id_bucket(id, capacity)]; seen; seen = seen->current_next)
+		if (same_input(id, &seen->current)) return 1;
+	return 0;
+}
+
+/* Atomic output publication changes the ID. Remove the old current key while
+ * retaining the original key to recognize aliases in later directory batches. */
+static void refresh_seen_input(SETTINGS *settings, FILE_LIST *file)
+{
+	struct seen_input *seen = file->seen, **bucket;
+	size_t capacity = settings->seen_capacity;
+	if (seen->current.valid) {
+		bucket = settings->seen_buckets + 2 * capacity + input_id_bucket(&seen->current, capacity);
+		while (*bucket != seen) bucket = &(*bucket)->current_next;
+		*bucket = seen->current_next;
+	}
+	input_identity(file->filename, &seen->current);
+	seen->current_next = NULL;
+	if (seen->current.valid) {
+		bucket = settings->seen_buckets + 2 * capacity + input_id_bucket(&seen->current, capacity);
+		seen->current_next = *bucket; *bucket = seen;
+	}
+}
+
 static void free_seen_inputs(SETTINGS *settings)
 {
 	while (settings->seen_inputs) {
@@ -252,6 +343,8 @@ static void free_seen_inputs(SETTINGS *settings)
 		settings->seen_inputs = seen->next;
 		free(seen->path); free(seen);
 	}
+	free(settings->seen_buckets); settings->seen_buckets = NULL;
+	settings->seen_capacity = settings->seen_count = 0;
 }
 
 /* Retain both identities: replacing one name can break a hard/symbolic link.
@@ -277,17 +370,17 @@ static int remember_inputs(FILE_LIST *files, SETTINGS *settings)
 #endif
 		if (!path) return 0;
 		input_identity(file->filename, &id);
-		for (seen = settings->seen_inputs; seen; seen = seen->next) {
-			if (!strcmp(path, seen->path) || same_input(&id, &seen->original) || same_input(&id, &seen->current)) {
-				fprintf(stderr, " Duplicate input refused: %s.\n", file->filename);
-				free(path); return 0;
-			}
+		if (!reserve_seen_inputs(settings)) { free(path); return 0; }
+		if (input_seen(settings, path, &id)) {
+			fprintf(stderr, " Duplicate input refused: %s.\n", file->filename);
+			free(path); return 0;
 		}
 		seen = calloc(1, sizeof(*seen));
 		if (!seen) { free(path); return 0; }
 		seen->path = path; seen->original = seen->current = id;
 		seen->next = settings->seen_inputs;
 		settings->seen_inputs = file->seen = seen;
+		index_seen_input(settings, seen); settings->seen_count++;
 	}
 	return 1;
 }
@@ -325,7 +418,7 @@ int process_files(FILE_LIST* file_list, SETTINGS* settings, const char* dir WG_U
 				failed = 1;
 				continue;
 			}
-			input_identity(file->filename, &file->seen->current);
+			refresh_seen_input(settings, file);
 		}
 	}
 	else {
@@ -443,7 +536,7 @@ int process_files(FILE_LIST* file_list, SETTINGS* settings, const char* dir WG_U
                     fprintf(stderr, " Error processing GAIN for file - %s\n", file->filename);
                     failed = 1;
                 }
-				input_identity(file->filename, &file->seen->current);
+				refresh_seen_input(settings, file);
             }
         }
 	}

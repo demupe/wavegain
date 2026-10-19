@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 import struct
 import tempfile
-from audio_fixtures import fmt, wav, w64, audio
+from audio_fixtures import fmt, wav, w64, audio, chunk
 from test_support import ROOT, parse_binary, run_cli
 
 BIN = parse_binary(__doc__)
@@ -31,6 +31,20 @@ def main():
             run_cli(BIN, ['-c', '-'], success=False, input_data=data)
         path.write_bytes(original[:-4])  # Complete frame at physical EOF: documented recovery.
         run_cli(BIN, ['-c', path])
+        rf_body = (b'WAVE' + chunk(b'ds64', struct.pack('<QQQI', len(original) + 28,
+                                                      len(pcm), len(pcm) // 4, 0))
+                   + chunk(b'fmt ', fmt()) + b'data' + struct.pack('<I', 0xffffffff) + pcm)
+        rf64 = b'RF64' + struct.pack('<I', 0xffffffff) + rf_body
+        # Make Wave64 data a multiple of eight bytes so a cut removes PCM,
+        # rather than the optional padding of its final chunk.
+        for source in (original, rf64, w64(pcm + pcm[:4])):
+            for cut in (1, 4):
+                truncated = source[:-cut]
+                path.write_bytes(truncated)
+                result = run_cli(BIN, ['-c', path], success=cut == 4)
+                if cut == 1:
+                    assert b'incomplete PCM frame' in result.stderr
+                assert path.read_bytes() == truncated
         # stdout must contain only the finalized container, never status text.
         for bit_format in ('1', '2', '3', '4', '5', '6'):
             path.write_bytes(original)

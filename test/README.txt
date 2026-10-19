@@ -41,10 +41,14 @@ output and complete histories in default, SSE2-only and C-only builds.
 It also checks FIR backend selection, independent peak-amplitude accuracy,
 K-weighting, fractional timing and extended peak reconstruction.
 
-Core coverage (23 test groups on Windows)
+Core coverage (25 test groups on Windows)
 -----------------------------------------
 fundamental_dsp       Independent K-weighting, fractional window timing,
                       extended reconstruction and conservative screening checks.
+fractional_rates      Arbitrary-rate history/peak capacities, all PCM input
+                      kernels and parameter/window resets; optimized/reference.
+input_index           Run-wide path and original/current ID hash indexes,
+                      rehashes, bounded lookup work and allocation failure.
 docs                  Generated help/manuals and option documentation.
 support_contracts     Normal rejection vs crash/sanitizer error; Python -O guard.
 filters               All-rate scalar/SIMD/mono/history equivalence and the
@@ -66,6 +70,7 @@ peak_accuracy         Independent known-amplitude/phase signals at 44.1..192 kHz
                       irregular chunks, precise/fast modes and combined/peak-only
                       measurement; corpus under-read budgets 0.08/0.5 dB are
                       regression checks, not universal accuracy guarantees.
+                      Abrupt high-rate endpoints use zero-extended sinc checks.
 windows_errors        Win32 diagnostics and directory-link classification. [Windows]
 output_publish        No-clobber publication; Windows post-preflight collision,
                       POSIX native/link/copy fallbacks and injected I/O failures.

@@ -35,7 +35,7 @@ static int wg_meter_init_peak(ebur128_state *st, WG_PEAK_MODE peak_mode)
 {
 	unsigned int factor = peak_mode == WG_PEAK_FAST ? 4 : 16;
 	interpolator *ip = interp_create(peak_mode == WG_PEAK_FAST ? 49 : 385, factor, st->channels);
-	size_t input_frames = st->d->samples_in_100ms * 4;
+	size_t input_frames = ebur128_peak_buffer_frames(st);
 	size_t output_frames;
 	float *input, *output;
 	if (!ip) return 0;
@@ -89,7 +89,9 @@ WG_METER *wg_meter_create_mode(unsigned long rate, unsigned int channels, int lo
 int wg_meter_add(WG_METER *m, double **pcm, size_t frames)
 {
 	size_t i;
+#if !defined(WG_EBUR_REFERENCE) && !defined(WG_EBUR_EXTRA_REFERENCE)
 	unsigned int ch;
+#endif
 	if (!m || m->finished || frames > (size_t)-1 / m->channels / sizeof(double)) return 0;
 	if (frames > m->capacity) {
 		double *p = realloc(m->packed, frames * m->channels * sizeof(double));

@@ -32,8 +32,11 @@ with tempfile.TemporaryDirectory(prefix='wavegain-feature-interop-') as tmp:
             n = rate * 2 + 37
             values = []
             for i in range(n):
+                # Compare steady-state peaks: FFmpeg's high-rate interpolator
+                # cannot serve as a reference for a hard stop to silence.
+                edge = min(1., i / 2000, (n - 1 - i) / 2000)
                 for ch in range(channels):
-                    values.append(round(32767 * (.12 * math.sin(2 * math.pi * (1000 + 500 * ch) * i / rate)
+                    values.append(round(32767 * edge * (.12 * math.sin(2 * math.pi * (1000 + 500 * ch) * i / rate)
                                                  + .025 * math.cos(2 * math.pi * 300 * i / rate))))
             with wave.open(str(source), 'wb') as f:
                 f.setparams((channels, 2, rate, 0, 'NONE', 'PCM'))

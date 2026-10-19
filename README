@@ -136,7 +136,8 @@ WAV / RF64:
 * --rf64 requires seekable output and is ignored with --stdout. RF64 input
   is supported and follows the same output-size rules when rewritten.
 * On seekable input, sentinel sizes or data extending past EOF are read to
-  the end of the file. Stdin size validation remains strict.
+  the end of the file, provided it ends on a complete PCM frame. Incomplete
+  frames are refused, including after EOF recovery. Stdin remains strict.
 
 Sony Wave64:
 * Input is detected by its GUIDs. Wave64 remains Wave64 when applying gain
@@ -147,7 +148,8 @@ Sony Wave64:
   copying. 'fact' and 'gain' are rewritten before audio; stale 'levl' peak
   summaries are dropped.
 * Seekable input with unfinalized or truncated sizes is accepted with a
-  warning. Stdin remains strict.
+  warning if the recovered audio ends on a complete PCM frame. Incomplete
+  frames are refused. Stdin remains strict.
 * There is no WAV-to-Wave64 output option; use an external converter to
   create the initial .w64 file.
 
@@ -291,6 +293,7 @@ Version 1.5.1:
   bytes are preserved; other targets retain their existing analysis paths.
 * Reject non-invertible Wave64 undo scales, incomplete PCM frames and invalid
   extensible-WAV precision/extension lengths before rewriting input files.
+  Incomplete frames are also refused in truncated files after EOF recovery.
 * Reject repeated inputs (including file-ID aliases) before each processing
   batch to prevent repeated gain application. Earlier completed batches remain.
 * Windows command construction is bounded by the shell limit, and command
