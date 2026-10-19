@@ -1,4 +1,4 @@
-WaveGain v1.5.2
+WaveGain v1.5.3
 ===============================================================================
 
 Japanese documentation / 日本語版: [README.ja.md](README.ja.md)
@@ -259,7 +259,7 @@ and HTML manual. Do not edit the option reference below directly.
 
 Behavior changes
 -------------------------------------------------------------------------------
-Unreleased:
+Version 1.5.3:
 * Input duplicate checks use invocation-wide path and file-ID hash indexes,
   avoiding quadratic lookup work across large recursive runs while retaining
   protection against aliases of original and rewritten files.
@@ -417,7 +417,7 @@ Documentation (from wavegain --help)
 -------------------------------------------------------------------------------
 Generated from doc/help.json; run make docs after editing.
 
-WaveGain v1.5.2
+WaveGain v1.5.3
  Usage: wavegain [options] input.wav [...] (also .w64)
 
  OPTIONS
