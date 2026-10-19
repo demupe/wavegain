@@ -260,6 +260,13 @@ and HTML manual. Do not edit the option reference below directly.
 Behavior changes
 -------------------------------------------------------------------------------
 Unreleased:
+* Input duplicate checks use invocation-wide path and file-ID hash indexes,
+  avoiding quadratic lookup work across large recursive runs while retaining
+  protection against aliases of original and rewritten files.
+* Bundled LUFS/true-peak history and staging buffers cover rounded 400 ms
+  blocks at arbitrary rates. The CLI's supported sample rates are unchanged.
+* High-rate FFmpeg comparisons use faded signals; separate independent
+  reconstruction checks retain coverage of abrupt end-of-file peaks.
 * Windows --exec runs through the system cmd.exe with /d /v:on. References to
   WaveGain's variables are expanded after parsing, so special characters in
   file and folder names stay data. These variables do not expand inside pipes;
