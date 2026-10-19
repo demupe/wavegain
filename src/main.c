@@ -385,6 +385,69 @@ static int remember_inputs(FILE_LIST *files, SETTINGS *settings)
 	return 1;
 }
 
+#ifdef _WIN32
+/* Variables published to --exec commands; keep in sync with process_files()
+ * and doc/help.json. */
+static const char *const exec_variables[] = {
+	"INPUT_FILE", "INPUT_FDIR", "INPUT_RDIR", "INPUT_NAME",
+	"TRACK_GAIN", "TRACK_PEAK", "TRACK_SCALE", "TRACK_NEW_PEAK",
+	"ALBUM_GAIN", "ALBUM_PEAK", "ALBUM_SCALE", "ALBUM_NEW_PEAK",
+	"DC_OFFSET_L", "DC_OFFSET_R"
+};
+
+/* cmd.exe expands %VAR% before parsing, so file names containing & | < > ^ ( )
+ * would become command syntax. Delayed !VAR! expansion runs after parsing and
+ * is never re-parsed, so switch WaveGain's own variables to it. A literal '!'
+ * cannot be represented reliably under /v:on and is rejected. */
+static int delay_exec_variables(char *command)
+{
+	char *p;
+	size_t i, n;
+	for (p = command; *p; p++) {
+		if (*p == '!') return 0;
+		if (*p != '%') continue;
+		for (i = 0; i < sizeof(exec_variables) / sizeof(*exec_variables); i++) {
+			n = strlen(exec_variables[i]);
+			if (!_strnicmp(p + 1, exec_variables[i], n) && p[n + 1] == '%') {
+				p[0] = p[n + 1] = '!';
+				p += n + 1;
+				break;
+			}
+		}
+	}
+	return 1;
+}
+
+/* Run a command prepared by build_command() through the system cmd.exe:
+ * /d skips AutoRun, /v:on enables the delayed variables, and /s strips only
+ * the enclosing quotes added here. */
+static int run_exec_command(const char *command)
+{
+	static const char options[] = " /d /v:on /s /c \"";
+	char shell[MAX_PATH + 9], *line;
+	UINT length = GetSystemDirectoryA(shell, MAX_PATH);
+	STARTUPINFOA startup;
+	PROCESS_INFORMATION process;
+	BOOL started;
+	if (!length || length >= MAX_PATH) return 0;
+	strcpy(shell + length, "\\cmd.exe");
+	line = malloc(strlen(shell) + sizeof(options) + strlen(command) + 3);
+	if (!line) return 0;
+	sprintf(line, "\"%s\"%s%s\"", shell, options, command);
+	memset(&startup, 0, sizeof(startup));
+	startup.cb = sizeof(startup);
+	fflush(stdout);
+	fflush(stderr);
+	started = CreateProcessA(shell, line, NULL, NULL, TRUE, 0, NULL, NULL, &startup, &process);
+	free(line);
+	if (!started) return 0;
+	WaitForSingleObject(process.hProcess, INFINITE);
+	CloseHandle(process.hThread);
+	CloseHandle(process.hProcess);
+	return 1;
+}
+#endif
+
 int process_files(FILE_LIST* file_list, SETTINGS* settings, const char* dir WG_UNUSED)
 {
 	FILE_LIST* file;
@@ -594,7 +657,10 @@ int process_files(FILE_LIST* file_list, SETTINGS* settings, const char* dir WG_U
 			SetEnvironmentVariable("DC_OFFSET_R", ftos(trunc(file->dc_offset[1] * -32768.) + 0., "%.0lf"));
 
 			fprintf(stderr, "\n Executing command on \"%s\":\n\n", file->filename);
-			system(settings->cmd);
+			if (!run_exec_command(settings->cmd)) {
+				fprintf(stderr, " Error: cannot start the command.\n");
+				failed = 1;
+			}
 			free(buff);
 		}
 	}
@@ -698,11 +764,11 @@ static char *build_command(const char *program, int argc, char **argv)
 	}
 	name_length = strlen(name);
 	/* Preserve shell fragments such as "echo hello". Quote actual executable
-	 * paths only; cmd.exe needs an additional enclosing quote pair. */
+	 * paths only; run_exec_command() adds the enclosing pair for cmd /s. */
 	quote = strpbrk(name, " \t") && (name == short_name ||
 		(full && GetFileAttributesA(full) != INVALID_FILE_ATTRIBUTES));
-	if (name_length > limit - 4 * quote) goto done;
-	length = name_length + 4 * quote;
+	if (name_length > limit - 2 * quote) goto done;
+	length = name_length + 2 * quote;
 	for (i = 0; i < argc; i++) {
 		size_t argument = strlen(argv[i]);
 		if (length > limit - 3 || argument > limit - length - 3) goto done;
@@ -712,7 +778,6 @@ static char *build_command(const char *program, int argc, char **argv)
 	if (!command) goto done;
 	p = command;
 	if (quote) *p++ = '"';
-	if (quote) *p++ = '"';
 	memcpy(p, name, name_length); p += name_length;
 	if (quote) *p++ = '"';
 	for (i = 0; i < argc; i++) {
@@ -721,8 +786,11 @@ static char *build_command(const char *program, int argc, char **argv)
 		memcpy(p, argv[i], argument); p += argument;
 		*p++ = '"';
 	}
-	if (quote) *p++ = '"';
 	*p = 0;
+	if (!delay_exec_variables(command)) {
+		free(command);
+		command = NULL;
+	}
 done:
 	free(full);
 	free(short_name);
@@ -955,7 +1023,7 @@ int main(int argc, char** argv)
 				free(settings.cmd);
 				settings.cmd = build_command(optarg, argc - optind, argv + optind);
 				if (settings.cmd == NULL) {
-					fprintf(stderr, "Command exceeds the shell limit or cannot be prepared.\n");
+					fprintf(stderr, "Command exceeds the shell limit, contains '!', or cannot be prepared.\n");
 					return 1;
 				}
 				argc = optind;

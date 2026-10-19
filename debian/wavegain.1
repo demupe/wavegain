@@ -117,6 +117,9 @@ WaveGain v1.5.2
                    TRACK_GAIN, TRACK_PEAK, TRACK_SCALE, TRACK_NEW_PEAK,
                    ALBUM_GAIN, ALBUM_PEAK, ALBUM_SCALE, ALBUM_NEW_PEAK,
                    DC_OFFSET_L, DC_OFFSET_R
+                   %VAR% references to these are expanded after cmd.exe
+                   parsing, so file names are never treated as commands.
+                   They do not expand inside pipes. '!' is not allowed.
  INPUT FILES
   WaveGain input files may be 8, 16, 24 or 32 bit integer, or floating point
   WAV or Sony Wave64 files with 1 or 2 channels and a sample rate of 192000Hz, 176400Hz, 96000Hz, 88200Hz,
