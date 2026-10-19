@@ -86,6 +86,15 @@ def main():
                 run([*shlex.split(args.cc), *shlex.split(args.cflags), '-UNDEBUG',
                      '-o', binary, *sources, *shlex.split(args.ldflags)])
                 run([binary])
+                if name == 'feature_dsp':
+                    # Exercise SSE2-only dispatch and portable C on AVX2 hosts.
+                    for variant, override in [('sse2', '-UWAVEGAIN_X86_AVX2'),
+                                              ('portable', '-UWAVEGAIN_X86_ASM')]:
+                        macro = 'WAVEGAIN_X86_AVX2' if variant == 'sse2' else 'WAVEGAIN_X86_ASM'
+                        run([*shlex.split(args.cc), *shlex.split(args.cflags), '-UNDEBUG',
+                             override, '-D' + macro + '=0', '-o', binary,
+                             *sources, *shlex.split(args.ldflags)])
+                        run([binary])
             else:
                 python(f'test/{name}.py', '--binary', str(resolve_binary(args.binary)))
             print('PASS ' + name, flush=True)

@@ -36,12 +36,15 @@ CLI tests can also be run directly, for example:
 Compiler/flag/linker arguments use the same shlex convention as the existing
 filter/loudness drivers. Windows wrappers quote compiler paths automatically.
 
+verified-release also runs feature_dsp with the release flags, checking FIR
+output and complete histories in default, SSE2-only and C-only builds.
+
 Core coverage (19 test groups on Windows)
 -----------------------------------------
 docs                  Generated help/manuals and option documentation.
 support_contracts     Normal rejection vs crash/sanitizer error; Python -O guard.
 filters               All-rate scalar/SIMD/mono/history equivalence and the
-                      two-pass/cached stereo backends, plus
+                      two-pass/cached/C-only stereo backends, plus
                       actual built CLI's output against a scalar CLI.
 loudness              Native reference/optimized energy/gating/peak checks,
                       including two-frame, four-frame and AVX2-disabled builds,
@@ -50,7 +53,9 @@ loudness              Native reference/optimized energy/gating/peak checks,
 portability           PCM/float serialization, buffers and sparse large WAV/RF64 I/O.
 wave64                Wave64 chunks, gain, formats, padding and sparse large I/O.
 review_io             Allocation/read/write/seek/finalization fault injection.
-feature_dsp           Decimator history bits, pass/stop bands and rate dither.
+feature_dsp           Decimator history bits, pass/stop bands and rate dither;
+                      default, SSE2-only and C-only builds, lookahead/ring-wrap
+                      boundaries, tiny chunks and zero-frame calls.
 gain_kernel           Quantizer rounding/clamping/DC and non-finite input.
 windows_errors        Win32 diagnostics and directory-link classification. [Windows]
 output_publish        No-clobber publication; Windows post-preflight collision,

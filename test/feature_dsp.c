@@ -57,19 +57,24 @@ static void check_decimator_bits(void)
 	double history[2][127] = {{0}}, data[2][257], expected[2][257];
 	double *pcm[2] = {data[0], data[1]};
 	uint32_t random = UINT32_C(0x12345);
-	int channels, cursor, position, start, chunk, i, ch, j, out, got;
+	const int chunks[] = {1,2,3,13,14,15,16,17,29,30,31,63,64,65,
+		111,112,113,125,126,127,128,129,255,256,257};
+	int channels, mode, cursor, position, start, chunk, index, i, ch, j, out, got;
 	for (channels = 1; channels <= 2; channels++) {
+	for (mode = 0; mode < 3; mode++) {
 		wg_decimator_init(&state, channels);
 		memset(history, 0, sizeof(history));
-		cursor = position = 0;
+		cursor = position = index = 0;
 		for (start = 0; start < 10063; start += chunk) {
-			chunk = start % 257 + 1;
+			chunk = mode == 0 ? start % 257 + 1 : mode == 1 ?
+				chunks[index++ % (sizeof(chunks) / sizeof(*chunks))] : 257;
 			if (chunk > 10063 - start) chunk = 10063 - start;
 			out = 0;
 			for (i = 0; i < chunk; i++, position++) {
 				for (ch = 0; ch < channels; ch++) {
 					random = random * UINT32_C(1664525) + UINT32_C(1013904223);
 					data[ch][i] = position >= 10000 ? 0. : ((double)random - 2147483648.) * 0x1p-31;
+					if (position % 59 == 0) data[ch][i] = ch ? -1e-300 : 1e-300;
 					history[ch][cursor] = data[ch][i];
 				}
 				if (position >= 63 && !((position - 63) & 1)) {
@@ -88,8 +93,21 @@ static void check_decimator_bits(void)
 			}
 			got = wg_decimator_process(&state, pcm, chunk);
 			assert(got == out);
-			for (ch = 0; ch < channels; ch++) assert(!memcmp(data[ch], expected[ch], out * sizeof(double)));
+			assert(state.cursor == cursor && state.position == (unsigned long long)position);
+			for (ch = 0; ch < channels; ch++) {
+				assert(!memcmp(data[ch], expected[ch], out * sizeof(double)));
+				/* Lookahead must leave both mirrored histories identical to
+				 * the one-frame-at-a-time reference at every call boundary. */
+				assert(!memcmp(state.history[ch], history[ch], sizeof(history[ch])));
+				assert(!memcmp(state.history[ch] + 127, history[ch], sizeof(history[ch])));
+			}
+			{
+				WG_DECIMATOR saved = state;
+				assert(wg_decimator_process(&state, NULL, 0) == 0);
+				assert(!memcmp(&state, &saved, sizeof(state)));
+			}
 		}
+	}
 	}
 }
 

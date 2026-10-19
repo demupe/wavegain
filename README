@@ -204,9 +204,15 @@ Use python test/run_suite.py --list to list groups, or --only NAME to select one
 
 verified-release compares ReplayGain filter state and complete conversion
 output with a scalar build using the same compiler and flags, and removes
-the binary on mismatch. It also verifies loudness kernels against the native
-reference. VERIFY_SIMD=auto accepts either backend (default);
+the binary on mismatch. It also verifies high-rate FIR streaming/output against
+the scalar convolution and loudness kernels against the native reference.
+VERIFY_SIMD=auto accepts either backend (default);
 VERIFY_SIMD=1 requires paired stereo SIMD and VERIFY_SIMD=0 requires scalar.
+GNU-compatible x86_64 builds also use handwritten SSE2 analysis kernels and
+select the high-rate FIR's AVX2 kernel at runtime. Define
+WAVEGAIN_X86_ASM=0 to retain C analysis kernels, or
+WAVEGAIN_X86_AVX2=0 to verify the SSE2-only FIR. The FIR retains its
+original scalar path on globally FMA-enabled builds to preserve rounding.
 
 Release optimization can be selected without editing the Makefile. For Clang:
     make verified-release CC=clang RELEASE_OPT=-O3 LTO_FLAGS=-flto=thin
@@ -236,6 +242,10 @@ and HTML manual. Do not edit the option reference below directly.
 Behavior changes
 -------------------------------------------------------------------------------
 Unreleased:
+* GNU-compatible x86_64 builds keep ReplayGain filter histories in SSE2
+  registers and evaluate eight high-rate FIR outputs in parallel, selecting
+  AVX2 when available. Per-sample operation order, streaming state and output
+  bytes are preserved; other targets retain their existing analysis paths.
 * Reject non-invertible Wave64 undo scales, incomplete PCM frames and invalid
   extensible-WAV precision/extension lengths before rewriting input files.
 * Reject repeated inputs (including file-ID aliases) before each processing

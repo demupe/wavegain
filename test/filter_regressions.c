@@ -256,8 +256,13 @@ int main(void)
 #ifndef FILTER_COMPATIBILITY_TEST
     mixed_channels(); errors();
 #endif
-    fprintf(stderr,"Filters: 12 rates, kernel bits, mono/stereo API state/histograms, chunks, album resets and non-finite guards passed (SIMD=%d).\n",
+    fprintf(stderr,"Filters: 12 rates, kernel bits, mono/stereo API state/histograms, chunks, album resets and non-finite guards passed (SIMD=%d, x86-asm=%d).\n",
 #ifdef WAVEGAIN_HAVE_FILTER_PAIR
+            1,
+#else
+            0,
+#endif
+#ifdef WG_RG_X86_ASM
             1
 #else
             0

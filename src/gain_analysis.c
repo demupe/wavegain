@@ -460,6 +460,8 @@ filterButterPair(const Float_t *left, const Float_t *right,
 }
 
 #else
+#include "gain_analysis_x86.h"
+
 /* Preserve each scalar expression, retaining causal histories in local vectors.
  * The second stage consumes each first-stage result immediately; histories
  * are still written to the planar buffers for chunk/window boundaries. */
@@ -469,6 +471,10 @@ filterStereoHistory(const Float_t *left, const Float_t *right,
 	Float_t *out_left, Float_t *out_right, size_t count,
 	const Float_t *yule, const Float_t *butter)
 {
+#ifdef WG_RG_X86_ASM
+	filterStereoX86(left, right, step_left, step_right, out_left, out_right,
+		count, yule, butter);
+#else
 	FILTER_NO_CONTRACT
 	filter_pair x[10], y[10];
 	filter_pair b1 = PAIR_AT(out_left, out_right, -1);
@@ -511,6 +517,7 @@ filterStereoHistory(const Float_t *left, const Float_t *right,
 		b2 = b1; b1 = output;
 		left++; right++;
 	}
+#endif
 }
 
 #endif

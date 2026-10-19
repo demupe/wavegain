@@ -75,7 +75,9 @@ def main():
         for variant, flags in [('scalar',['-DWAVEGAIN_FILTER_SIMD=0', '-DWAVEGAIN_MONO_REUSE=0']),
                                ('default',default_flags),
                                ('two_pass',['-DWAVEGAIN_STEREO_HISTORY=0']),
-                               ('cached',['-DWAVEGAIN_STEREO_HISTORY=1'])]:
+                               ('cached',['-DWAVEGAIN_STEREO_HISTORY=1']),
+                               ('cached_c',['-DWAVEGAIN_STEREO_HISTORY=1',
+                                            '-UWAVEGAIN_X86_ASM', '-DWAVEGAIN_X86_ASM=0'])]:
             binary = folder / variant
             subprocess.run([*shlex.split(args.cc), *shlex.split(args.cflags), '-DHAVE_CONFIG_H',
                             '-UNDEBUG', *flags, str(ROOT/'test/filter_regressions.c'),
@@ -129,6 +131,15 @@ def main():
                     data = (subprocess.check_output(['git','show',f'{args.reference_ref}:{prefix}{name}'],cwd=ROOT)
                             if variant == 'prior' else (SRC/name).read_bytes())
                     (build/'src'/name).write_bytes(data)
+                # New private backends are absent in older snapshots.
+                header = 'gain_analysis_x86.h'
+                if variant == 'current':
+                    (build/'src'/header).write_bytes((SRC/header).read_bytes())
+                elif subprocess.run(['git', 'cat-file', '-e',
+                                     f'{args.reference_ref}:{prefix}{header}'],
+                                    cwd=ROOT, capture_output=True).returncode == 0:
+                    (build/'src'/header).write_bytes(subprocess.check_output(
+                        ['git', 'show', f'{args.reference_ref}:{prefix}{header}'], cwd=ROOT))
                 binary = build/'probe'
                 subprocess.run([*shlex.split(args.cc),*shlex.split(args.cflags),'-DHAVE_CONFIG_H',
                                 '-UNDEBUG','-DFILTER_COMPATIBILITY_TEST',str(build/'test/filter_regressions.c'),
@@ -147,7 +158,7 @@ def main():
         if args.cli:
             report['cli_cases'] = check_cli(args, folder)
     if args.output: args.output.write_text(json.dumps(report,indent=2)+'\n')
-    print('Scalar/default/two-pass/cached filter API output is byte-for-byte identical.')
+    print('Scalar/default/two-pass/cached/cached-C filter API output is byte-for-byte identical.')
 
 if __name__ == '__main__':
     try:

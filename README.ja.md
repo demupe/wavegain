@@ -151,7 +151,7 @@ sudo make install prefix=/usr
 
 インストールターゲットはGNU形式の`install`オプションを使用します。macOSでは、ビルドした実行ファイルをPATHの通ったディレクトリへコピーする方法も利用できます。
 
-Windowsでは、MSYS2のMINGW64シェルでMinGW-w64 GCCと同じMakefileを使用するか、`mswindows/`内のプロジェクトファイルを利用できます。MinGWのリリースビルドは`_FORTIFY_SOURCE`用のlibsspを静的リンクし、システムDLLだけに依存します。LLVM-MinGW ClangによるWindows ARM64実機では、出力・測定モードを含む回帰テストが通過しています。x64版はWindowsのエミュレーションで確認しており、MSVC・GCCおよびx64実機での検証は残っています。
+Windowsでは、MSYS2のMINGW64シェルでMinGW-w64 GCCと同じMakefileを使用するか、`mswindows/`内のプロジェクトファイルを利用できます。MinGWのリリースビルドは`_FORTIFY_SOURCE`用のlibsspを静的リンクし、システムDLLだけに依存します。LLVM-MinGW ClangによるWindows ARM64実機では、出力・測定モードを含む回帰テストが通過しています。Windows x64実機でも、手書きアセンブラを含む共有テストを確認しています。MSVC・GCCや他のx64 CPUでの検証は残っています。
 
 `debian/`のパッケージ設定は過去のもので、保守されていません。古いdebuild手順には依存せず、ソースからビルドしてください。
 
@@ -170,7 +170,9 @@ Windowsでは、MSYS2のMINGW64シェルでMinGW-w64 GCCと同じMakefileを使�
 
 PCM・浮動小数点変換、ゲインと取り消し、メタデータ、不正ファイル、5 GiBのWave64を含むスパース大容量ファイル、出力パス、ラウドネス、True Peak上限、リサンプリング、ディザの信号特性を検証します。未完了の検証項目は[TODO](TODO)に記録しています。
 
-`verified-release`は、同じコンパイラー・フラグで作成したスカラー版とReplayGainのフィルター状態・変換出力を比較し、不一致なら実行ファイルを削除します。`VERIFY_SIMD=auto`が既定で、どちらのバックエンドも許可します。`VERIFY_SIMD=1`はステレオSIMD版、`VERIFY_SIMD=0`はスカラー版を要求します。
+`verified-release`は、同じコンパイラー・フラグで作成したスカラー版とReplayGainのフィルター状態・変換出力を比較し、高レートFIRの出力と履歴も参照畳み込みと照合します。不一致なら実行ファイルを削除します。`VERIFY_SIMD=auto`が既定で、どちらのバックエンドも許可します。`VERIFY_SIMD=1`はステレオSIMD版、`VERIFY_SIMD=0`はスカラー版を要求します。
+
+GNU互換コンパイラーのx86_64ビルドは、ReplayGainの履歴をレジスターに保持するSSE2アセンブラと、高レートFIRの8出力並列処理を使用します。AVX2は実行時に判定し、非対応CPUではSSE2を使用します。ビルド時に`-DWAVEGAIN_X86_ASM=0`を定義するとC経路、`-DWAVEGAIN_X86_AVX2=0`でSSE2のみのFIR経路を検証できます。FMAを全体で有効にしたビルドのFIRは、従来の丸めを保つためスカラー経路を使用します。
 
 CLIヘルプとマニュアルの正本は[doc/help.json](doc/help.json)です。変更後は`make docs`で生成し、`make check-docs`で英語READMEのヘルプ、`src/help_generated.h`、manページ、HTMLマニュアルの同期を検査します。日本語READMEは手動翻訳のため、オプションや挙動の変更時にはこちらも更新してください。
 
