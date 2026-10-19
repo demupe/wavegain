@@ -52,9 +52,11 @@
                           Silence/below-gate material uses manual gain only.
       --true-peak         Measure DC-corrected true peak and limit linear gain
                           to -1 dBTP by default, even with --noclip.
-      --true-peak-mode X  precise (default, 16x) or fast (4x at every rate).
+      --true-peak-mode X  precise (default, 16x), fast (4x), or extended.
                           Implies --true-peak; applies to output checks too.
-                          Both analyze all frames. Fast has more peak error;
+                          extended adds a longer 16x FIR with screened evaluation.
+                          It can cost substantially more CPU. All analyze all frames.
+                          All are finite estimates, including extended;
                           under-read can exceed the 0.1 dB gain reserve.
                           Separate from --fast; cannot combine with it.
       --peak-ceiling X    Set true-peak ceiling (-60..0 dBTP); implies --true-peak.
@@ -71,6 +73,8 @@
                           sample-rate-dependent coefficient; -d 1 is unshaped.
                           Light/Medium/Heavy knees: 10/6/3 kHz, respectively.
                           This is a separate family from the legacy F44 filters.
+                          Legacy -d 1 uses full high-pass TPDF at every bit depth;
+                          legacy -d 2..4 retain their F44 noise shaping.
 
 [Builds with recursive/pattern support]
   -z, --recursive  Search for files recursively, each folder as an album

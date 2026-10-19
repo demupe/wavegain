@@ -125,7 +125,7 @@ with tempfile.TemporaryDirectory(prefix='wavegain-features-') as temp:
     assert 'Output true peak:' in text
     # Explicit precise is the default, while fast changes only peak measurement.
     source_bytes = source.read_bytes()
-    for quality in ('precise', 'fast'):
+    for quality in ('precise', 'fast', 'extended'):
         target = folder / f'lufs-{quality}.wav'
         _, selected = run('-y', '--lufs', '--true-peak-mode', quality, '--output', target, source)
         assert f'True-peak mode: {quality}' in selected

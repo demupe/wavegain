@@ -18,7 +18,7 @@ static void emit_state(ebur128_state *s)
 		assert(fwrite(&value, sizeof(value), 1, stdout) == 1);
 		assert(ebur128_sample_peak(s, ch, &value) == EBUR128_SUCCESS);
 		assert(fwrite(&value, sizeof(value), 1, stdout) == 1);
-		assert(fwrite(s->d->v[ch], sizeof(double), 5, stdout) == 5);
+		assert(fwrite(s->d->v[ch], sizeof(double), FILTER_STATE_SIZE, stdout) == FILTER_STATE_SIZE);
 	}
 	assert(fwrite(s->d->audio_data, sizeof(double), s->d->audio_data_frames * s->channels, stdout)
 	       == s->d->audio_data_frames * s->channels);

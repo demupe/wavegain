@@ -4,6 +4,7 @@
 
 #include <float.h>
 #include <limits.h>
+#include <stdint.h>
 #include <math.h> /* You may have to define _USE_MATH_DEFINES if you use MSVC */
 #include <stdio.h>
 #include <stdlib.h>
@@ -37,7 +38,7 @@ struct ebur128_dq_entry {
 };
 
 #define ALMOST_ZERO 0.000001
-#define FILTER_STATE_SIZE 5
+#define FILTER_STATE_SIZE 8
 
 typedef struct {
   unsigned int count;  /* Number of coefficients in this subfilter */
@@ -73,10 +74,13 @@ struct ebur128_state_internal {
   int* channel_map;
   /** How many samples fit in 100ms (rounded). */
   unsigned long samples_in_100ms;
+  unsigned int hop_remainder;
   /** BS.1770 filter coefficients (nominator). */
   double b[5];
   /** BS.1770 filter coefficients (denominator). */
   double a[5];
+  /* Keep the two physical K-weighting stages separate. */
+  double shelf_b[3], shelf_a[2], highpass_a[2];
   /** one filter_state per channel. */
   filter_state* v;
   /** Linked list of block energies. */
@@ -282,6 +286,12 @@ static int ebur128_init_filter(ebur128_state* st) {
 
   ra[1] = 2.0 * (K * K - 1.0) / (1.0 + K / Q + K * K);
   ra[2] = (1.0 - K / Q + K * K) / (1.0 + K / Q + K * K);
+
+  for (i = 0; i < 3; ++i) st->d->shelf_b[i] = pb[i];
+  for (i = 0; i < 2; ++i) {
+    st->d->shelf_a[i] = pa[i + 1];
+    st->d->highpass_a[i] = ra[i + 1];
+  }
 
   /* fprintf(stderr, "%.14f %.14f\n", a2[1], a2[2]); */
 
@@ -506,7 +516,8 @@ ebur128_init(unsigned int channels, unsigned long samplerate, int mode) {
   CHECK_ERROR(result, 0, free_short_term_block_energy_histogram)
 
   /* the first block needs 400ms of audio data */
-  st->d->needed_frames = st->d->samples_in_100ms * 4;
+  st->d->needed_frames = (unsigned long) (((uint64_t) st->samplerate * 4 + 5) / 10);
+  st->d->hop_remainder = (unsigned int) ((4 * (st->samplerate % 10) + 5) % 10);
   /* start at the beginning of the buffer */
   st->d->audio_data_index = 0;
 
@@ -611,11 +622,24 @@ static void ebur128_check_true_peak(ebur128_state* st, size_t frames) {
 #define TURN_ON_FTZ
 #define TURN_OFF_FTZ
 #define FLUSH_MANUALLY                                                         \
-  st->d->v[c][4] = fabs(st->d->v[c][4]) < DBL_MIN ? 0.0 : st->d->v[c][4];      \
-  st->d->v[c][3] = fabs(st->d->v[c][3]) < DBL_MIN ? 0.0 : st->d->v[c][3];      \
-  st->d->v[c][2] = fabs(st->d->v[c][2]) < DBL_MIN ? 0.0 : st->d->v[c][2];      \
-  st->d->v[c][1] = fabs(st->d->v[c][1]) < DBL_MIN ? 0.0 : st->d->v[c][1];
+  for (size_t state_index = 0; state_index < FILTER_STATE_SIZE; ++state_index)  \
+    if (fabs(st->d->v[c][state_index]) < DBL_MIN)                              \
+      st->d->v[c][state_index] = 0.0;
 #endif
+
+/* Direct-form I biquads avoid the cancellation of a combined fourth-order
+ * direct-form II realization, particularly at high rates and large DC. */
+static double ebur128_k_sample(ebur128_state* st, size_t c, double x) {
+  double* v = st->d->v[c];
+  double y = st->d->shelf_b[0] * x + st->d->shelf_b[1] * v[0] +
+             st->d->shelf_b[2] * v[1] - st->d->shelf_a[0] * v[2] -
+             st->d->shelf_a[1] * v[3];
+  double z = y - 2.0 * v[4] + v[5] - st->d->highpass_a[0] * v[6] -
+             st->d->highpass_a[1] * v[7];
+  v[1] = v[0]; v[0] = x; v[3] = v[2]; v[2] = y;
+  v[5] = v[4]; v[4] = y; v[7] = v[6]; v[6] = z;
+  return z;
+}
 
 #define EBUR128_FILTER(type, min_scale, max_scale)                             \
   static void ebur128_filter_##type(ebur128_state* st, const type* src,        \
@@ -658,22 +682,8 @@ static void ebur128_check_true_peak(ebur128_state* st, size_t frames) {
         continue;                                                              \
       }                                                                        \
       for (i = 0; i < frames; ++i) {                                           \
-        st->d->v[c][0] =                                                       \
-            (double) ((double) src[i * st->channels + c] / scaling_factor) -   \
-            st->d->a[1] * st->d->v[c][1] - /**/                                \
-            st->d->a[2] * st->d->v[c][2] - /**/                                \
-            st->d->a[3] * st->d->v[c][3] - /**/                                \
-            st->d->a[4] * st->d->v[c][4];                                      \
-        audio_data[i * st->channels + c] = /**/                                \
-            st->d->b[0] * st->d->v[c][0] + /**/                                \
-            st->d->b[1] * st->d->v[c][1] + /**/                                \
-            st->d->b[2] * st->d->v[c][2] + /**/                                \
-            st->d->b[3] * st->d->v[c][3] + /**/                                \
-            st->d->b[4] * st->d->v[c][4];                                      \
-        st->d->v[c][4] = st->d->v[c][3];                                       \
-        st->d->v[c][3] = st->d->v[c][2];                                       \
-        st->d->v[c][2] = st->d->v[c][1];                                       \
-        st->d->v[c][1] = st->d->v[c][0];                                       \
+        audio_data[i * st->channels + c] = ebur128_k_sample(                  \
+            st, c, (double) src[i * st->channels + c] / scaling_factor);       \
       }                                                                        \
       FLUSH_MANUALLY                                                           \
     }                                                                          \
@@ -898,7 +908,8 @@ int ebur128_change_parameters(ebur128_state* st,
   CHECK_ERROR(errcode, EBUR128_ERROR_NOMEM, exit)
 
   /* the first block needs 400ms of audio data */
-  st->d->needed_frames = st->d->samples_in_100ms * 4;
+  st->d->needed_frames = (unsigned long) (((uint64_t) st->samplerate * 4 + 5) / 10);
+  st->d->hop_remainder = (unsigned int) ((4 * (st->samplerate % 10) + 5) % 10);
   /* start at the beginning of the buffer */
   st->d->audio_data_index = 0;
   /* reset short term frame counter */
@@ -951,7 +962,8 @@ int ebur128_set_max_window(ebur128_state* st, unsigned long window) {
   }
 
   /* the first block needs 400ms of audio data */
-  st->d->needed_frames = st->d->samples_in_100ms * 4;
+  st->d->needed_frames = (unsigned long) (((uint64_t) st->samplerate * 4 + 5) / 10);
+  st->d->hop_remainder = (unsigned int) ((4 * (st->samplerate % 10) + 5) % 10);
   /* start at the beginning of the buffer */
   st->d->audio_data_index = 0;
   /* reset short term frame counter */
@@ -990,87 +1002,94 @@ int ebur128_set_max_history(ebur128_state* st, unsigned long history) {
 }
 
 static int ebur128_energy_shortterm(ebur128_state* st, double* out);
-#define EBUR128_ADD_FRAMES(type)                                               \
-  int ebur128_add_frames_##type(ebur128_state* st, const type* src,            \
-                                size_t frames) {                               \
-    size_t src_index = 0;                                                      \
-    unsigned int c = 0;                                                        \
-    for (c = 0; c < st->channels; c++) {                                       \
-      st->d->prev_sample_peak[c] = 0.0;                                        \
-      st->d->prev_true_peak[c] = 0.0;                                          \
-    }                                                                          \
-    while (frames > 0) {                                                       \
-      if (frames >= st->d->needed_frames) {                                    \
-        ebur128_filter_##type(st, src + src_index, st->d->needed_frames);      \
-        src_index += st->d->needed_frames * st->channels;                      \
-        frames -= st->d->needed_frames;                                        \
-        st->d->audio_data_index += st->d->needed_frames * st->channels;        \
-        /* calculate the new gating block */                                   \
-        if ((st->mode & EBUR128_MODE_I) == EBUR128_MODE_I) {                   \
-          if (ebur128_calc_gating_block(st, st->d->samples_in_100ms * 4,       \
-                                        NULL)) {                               \
-            return EBUR128_ERROR_NOMEM;                                        \
-          }                                                                    \
-        }                                                                      \
-        if ((st->mode & EBUR128_MODE_LRA) == EBUR128_MODE_LRA) {               \
-          st->d->short_term_frame_counter += st->d->needed_frames;             \
-          if (st->d->short_term_frame_counter ==                               \
-              st->d->samples_in_100ms * 30) {                                  \
-            struct ebur128_dq_entry* block;                                    \
-            double st_energy;                                                  \
-            if (ebur128_energy_shortterm(st, &st_energy) == EBUR128_SUCCESS && \
-                st_energy >= histogram_energy_boundaries[0]) {                 \
-              if (st->d->use_histogram) {                                      \
-                ++st->d->short_term_block_energy_histogram                     \
-                      [find_histogram_index(st_energy)];                       \
-              } else {                                                         \
-                if (st->d->st_block_list_size == st->d->st_block_list_max) {   \
-                  block = STAILQ_FIRST(&st->d->short_term_block_list);         \
-                  STAILQ_REMOVE_HEAD(&st->d->short_term_block_list, entries);  \
-                } else {                                                       \
-                  block = (struct ebur128_dq_entry*) malloc(                   \
-                      sizeof(struct ebur128_dq_entry));                        \
-                  if (!block) {                                                \
-                    return EBUR128_ERROR_NOMEM;                                \
-                  }                                                            \
-                  st->d->st_block_list_size++;                                 \
-                }                                                              \
-                block->z = st_energy;                                          \
-                STAILQ_INSERT_TAIL(&st->d->short_term_block_list, block,       \
-                                   entries);                                   \
-              }                                                                \
-            }                                                                  \
-            st->d->short_term_frame_counter = st->d->samples_in_100ms * 20;    \
-          }                                                                    \
-        }                                                                      \
-        /* 100ms are needed for all blocks besides the first one */            \
-        st->d->needed_frames = st->d->samples_in_100ms;                        \
-        /* reset audio_data_index when buffer full */                          \
-        if (st->d->audio_data_index ==                                         \
-            st->d->audio_data_frames * st->channels) {                         \
-          st->d->audio_data_index = 0;                                         \
-        }                                                                      \
-      } else {                                                                 \
-        ebur128_filter_##type(st, src + src_index, frames);                    \
-        st->d->audio_data_index += frames * st->channels;                      \
-        if ((st->mode & EBUR128_MODE_LRA) == EBUR128_MODE_LRA) {               \
-          st->d->short_term_frame_counter += frames;                           \
-        }                                                                      \
-        st->d->needed_frames -= (unsigned long) frames;                        \
-        frames = 0;                                                            \
-      }                                                                        \
-    }                                                                          \
-    for (c = 0; c < st->channels; c++) {                                       \
-      if (st->d->prev_sample_peak[c] > st->d->sample_peak[c]) {                \
-        st->d->sample_peak[c] = st->d->prev_sample_peak[c];                    \
-      }                                                                        \
-      if (st->d->prev_true_peak[c] > st->d->true_peak[c]) {                    \
-        st->d->true_peak[c] = st->d->prev_true_peak[c];                        \
-      }                                                                        \
-    }                                                                          \
-    return EBUR128_SUCCESS;                                                    \
+#define EBUR128_ADD_FRAMES(type)                                                \
+  int ebur128_add_frames_##type(ebur128_state* st, const type* src,             \
+                                size_t frames) {                                \
+    size_t src_index = 0;                                                       \
+    unsigned int c = 0;                                                         \
+    for (c = 0; c < st->channels; c++) {                                        \
+      st->d->prev_sample_peak[c] = 0.0;                                         \
+      st->d->prev_true_peak[c] = 0.0;                                           \
+    }                                                                           \
+    while (frames > 0) {                                                        \
+      size_t available = st->d->audio_data_frames -                             \
+                         st->d->audio_data_index / st->channels;                \
+      if (frames >= st->d->needed_frames &&                                     \
+          available >= st->d->needed_frames) {                                  \
+        ebur128_filter_##type(st, src + src_index, st->d->needed_frames);       \
+        src_index += st->d->needed_frames * st->channels;                       \
+        frames -= st->d->needed_frames;                                         \
+        st->d->audio_data_index += st->d->needed_frames * st->channels;         \
+        /* calculate the new gating block */                                    \
+        if ((st->mode & EBUR128_MODE_I) == EBUR128_MODE_I) {                    \
+          if (ebur128_calc_gating_block(st, (size_t) (((uint64_t) st->samplerate * 4 + 5) / 10),\
+                                        NULL)) {                                \
+            return EBUR128_ERROR_NOMEM;                                         \
+          }                                                                     \
+        }                                                                       \
+        if ((st->mode & EBUR128_MODE_LRA) == EBUR128_MODE_LRA) {                \
+          st->d->short_term_frame_counter += st->d->needed_frames;              \
+          if (st->d->short_term_frame_counter >=                                \
+              st->samplerate * 3) {                                             \
+            struct ebur128_dq_entry* block;                                     \
+            double st_energy;                                                   \
+            if (ebur128_energy_shortterm(st, &st_energy) == EBUR128_SUCCESS &&  \
+                st_energy >= histogram_energy_boundaries[0]) {                  \
+              if (st->d->use_histogram) {                                       \
+                ++st->d->short_term_block_energy_histogram                      \
+                      [find_histogram_index(st_energy)];                        \
+              } else {                                                          \
+                if (st->d->st_block_list_size == st->d->st_block_list_max) {    \
+                  block = STAILQ_FIRST(&st->d->short_term_block_list);          \
+                  STAILQ_REMOVE_HEAD(&st->d->short_term_block_list, entries);   \
+                } else {                                                        \
+                  block = (struct ebur128_dq_entry*) malloc(                    \
+                      sizeof(struct ebur128_dq_entry));                         \
+                  if (!block) {                                                 \
+                    return EBUR128_ERROR_NOMEM;                                 \
+                  }                                                             \
+                  st->d->st_block_list_size++;                                  \
+                }                                                               \
+                block->z = st_energy;                                           \
+                STAILQ_INSERT_TAIL(&st->d->short_term_block_list, block,        \
+                                   entries);                                    \
+              }                                                                 \
+            }                                                                   \
+            st->d->short_term_frame_counter -= st->samplerate;                  \
+          }                                                                     \
+        }                                                                       \
+        /* 100ms are needed for all blocks besides the first one */             \
+        st->d->hop_remainder += (unsigned int) (st->samplerate % 10);           \
+        st->d->needed_frames = st->samplerate / 10 + st->d->hop_remainder / 10; \
+        st->d->hop_remainder %= 10;                                             \
+        /* reset audio_data_index when buffer full */                           \
+        if (st->d->audio_data_index ==                                          \
+            st->d->audio_data_frames * st->channels) {                          \
+          st->d->audio_data_index = 0;                                          \
+        }                                                                       \
+      } else {                                                                  \
+        size_t part = frames < available ? frames : available;                  \
+        ebur128_filter_##type(st, src + src_index, part);                       \
+        st->d->audio_data_index += part * st->channels;                         \
+        src_index += part * st->channels;                                       \
+        if ((st->mode & EBUR128_MODE_LRA) == EBUR128_MODE_LRA)                  \
+          st->d->short_term_frame_counter += part;                              \
+        st->d->needed_frames -= (unsigned long) part;                           \
+        frames -= part;                                                         \
+        if (st->d->audio_data_index == st->d->audio_data_frames * st->channels) \
+          st->d->audio_data_index = 0;                                          \
+      }                                                                         \
+    }                                                                           \
+    for (c = 0; c < st->channels; c++) {                                        \
+      if (st->d->prev_sample_peak[c] > st->d->sample_peak[c]) {                 \
+        st->d->sample_peak[c] = st->d->prev_sample_peak[c];                     \
+      }                                                                         \
+      if (st->d->prev_true_peak[c] > st->d->true_peak[c]) {                     \
+        st->d->true_peak[c] = st->d->prev_true_peak[c];                         \
+      }                                                                         \
+    }                                                                           \
+    return EBUR128_SUCCESS;                                                     \
   }
-
 EBUR128_ADD_FRAMES(short)
 EBUR128_ADD_FRAMES(int)
 EBUR128_ADD_FRAMES(float)
@@ -1208,14 +1227,14 @@ static int ebur128_energy_in_interval(ebur128_state* st,
 }
 
 static int ebur128_energy_shortterm(ebur128_state* st, double* out) {
-  return ebur128_energy_in_interval(st, st->d->samples_in_100ms * 30, out);
+  return ebur128_energy_in_interval(st, st->samplerate * 3, out);
 }
 
 int ebur128_loudness_momentary(ebur128_state* st, double* out) {
   double energy;
   int error;
 
-  error = ebur128_energy_in_interval(st, st->d->samples_in_100ms * 4, &energy);
+  error = ebur128_energy_in_interval(st, (size_t) (((uint64_t) st->samplerate * 4 + 5) / 10), &energy);
   if (error) {
     return error;
   }

@@ -44,7 +44,7 @@ int main(void)
 		worst_under_read[quality] = fmax(worst_under_read[quality], 20. * log10(.5 / peak));
 		wg_meter_free(m);
 	}
-	assert(!wg_meter_create_mode(48000, 1, 0, 1, (WG_PEAK_MODE)2));
+	assert(!wg_meter_create_mode(48000, 1, 0, 1, (WG_PEAK_MODE)3));
 	fprintf(stderr, "Peak accuracy corpus max under-read: precise %.6f dB, fast %.6f dB\n",
 		worst_under_read[WG_PEAK_PRECISE], worst_under_read[WG_PEAK_FAST]);
 	puts("True peak: precise/fast known amplitudes, phases, 44.1..192 kHz, mono/stereo, combined/peak-only modes and streaming boundaries passed");

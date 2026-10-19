@@ -2,7 +2,7 @@
 #define WG_LOUDNESS_H
 #include <stddef.h>
 typedef struct wg_meter WG_METER;
-typedef enum { WG_PEAK_PRECISE = 0, WG_PEAK_FAST = 1 } WG_PEAK_MODE;
+typedef enum { WG_PEAK_PRECISE = 0, WG_PEAK_FAST = 1, WG_PEAK_EXTENDED = 2 } WG_PEAK_MODE;
 WG_METER *wg_meter_create(unsigned long rate, unsigned int channels, int loudness, int peak);
 WG_METER *wg_meter_create_mode(unsigned long rate, unsigned int channels, int loudness, int peak,
 	WG_PEAK_MODE peak_mode);

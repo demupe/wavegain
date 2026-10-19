@@ -15,6 +15,7 @@
 #endif
 #include "../vendor/libebur128/ebur128.c"
 #include "loudness.h"
+#include "peak_refine.h"
 
 
 struct wg_meter {
@@ -23,6 +24,8 @@ struct wg_meter {
 	double *packed;
 	size_t capacity;
 	int finished, has_loudness, has_peak;
+	wg_peak_refiner *refiner;
+	double refined_peak;
 };
 
 /* Keep the library reference kernels intact. Precise uses 385 taps/16x;
@@ -65,7 +68,8 @@ WG_METER *wg_meter_create_mode(unsigned long rate, unsigned int channels, int lo
 	WG_METER *m = calloc(1, sizeof(*m));
 	int mode = EBUR128_MODE_M;
 	if (!m || channels < 1 || channels > 2 ||
-	    (peak_mode != WG_PEAK_PRECISE && peak_mode != WG_PEAK_FAST)) { free(m); return NULL; }
+	    (peak_mode != WG_PEAK_PRECISE && peak_mode != WG_PEAK_FAST &&
+	     peak_mode != WG_PEAK_EXTENDED)) { free(m); return NULL; }
 	if (loudness) mode |= EBUR128_MODE_I;
 	if (peak) mode |= EBUR128_MODE_TRUE_PEAK;
 	m->channels = channels;
@@ -74,6 +78,9 @@ WG_METER *wg_meter_create_mode(unsigned long rate, unsigned int channels, int lo
 	m->state = ebur128_init(channels, rate, mode);
 	if (!m->state) { free(m); return NULL; }
 	if (peak && !wg_meter_init_peak(m->state, peak_mode)) {
+		ebur128_destroy(&m->state); free(m); return NULL;
+	}
+	if (peak && peak_mode == WG_PEAK_EXTENDED && !(m->refiner = wg_peak_refiner_create())) {
 		ebur128_destroy(&m->state); free(m); return NULL;
 	}
 	return m;
@@ -103,6 +110,7 @@ int wg_meter_add(WG_METER *m, double **pcm, size_t frames)
 			m->packed[i] = pcm[0][i];
 		}
 	}
+	if (m->refiner) wg_peak_refiner_add(m->refiner, pcm, frames, m->channels, m->refiner->peak);
 #if !defined(WG_EBUR_REFERENCE) && !defined(WG_EBUR_EXTRA_REFERENCE)
 	/* Peak-only measurement needs neither K-weighting nor a loudness ring.
 	 * Use the same peak kernels, leaving integrated measurement unchanged. */
@@ -128,6 +136,14 @@ int wg_meter_finish(WG_METER *m, double *lufs, double *peak)
 	int release_buffers;
 	if (!m) return 0;
 	release_buffers = !m->finished;
+	if (!m->finished && m->refiner) {
+		double zero[64] = {0.}, *pcm[2] = {zero, zero};
+		unsigned int i;
+		for (i = 0; i < WG_REFINE_LENGTH; i += 64)
+			wg_peak_refiner_add(m->refiner, pcm,
+				WG_REFINE_LENGTH - i < 64 ? WG_REFINE_LENGTH - i : 64, m->channels, m->refiner->peak);
+		m->refined_peak = m->refiner->peak;
+	}
 	/* Drain only interpolation, without adding silence to the loudness blocks. */
 	if (!m->finished && m->has_peak && m->state->d->interp) {
 #ifdef WG_EBUR_REFERENCE
@@ -146,7 +162,7 @@ int wg_meter_finish(WG_METER *m, double *lufs, double *peak)
 		if (m->has_loudness && ebur128_loudness_global(m->state, lufs) != EBUR128_SUCCESS) return 0;
 	}
 	if (peak) {
-		*peak = 0.;
+		*peak = m->refined_peak;
 		for (ch = 0; m->has_peak && ch < m->channels; ch++) {
 			double value;
 			if (ebur128_true_peak(m->state, ch, &value) != EBUR128_SUCCESS || !isfinite(value)) return 0;
@@ -156,6 +172,7 @@ int wg_meter_finish(WG_METER *m, double *lufs, double *peak)
 	/* Album integration only needs gating history. Do not retain large audio
 	 * and interpolation buffers for every already-measured file in an album. */
 	if (release_buffers) {
+		free(m->refiner); m->refiner = NULL;
 		free(m->packed); m->packed = NULL; m->capacity = 0;
 		free(m->state->d->audio_data); m->state->d->audio_data = NULL;
 		free(m->state->d->v); m->state->d->v = NULL;
@@ -186,5 +203,6 @@ void wg_meter_free(WG_METER *m)
 	if (!m) return;
 	ebur128_destroy(&m->state);
 	free(m->packed);
+	free(m->refiner);
 	free(m);
 }

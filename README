@@ -257,9 +257,23 @@ and HTML manual. Do not edit the option reference below directly.
 
 Behavior changes
 -------------------------------------------------------------------------------
-Unreleased:
-* --true-peak-mode precise|fast selects 16x (default) or 4x interpolation at
-  every source rate. It enables true peak and applies to output checks too.
+Version 1.5.2:
+* DC analysis uses exact integer-PCM block sums and compensated block addition.
+  Every nonzero requested gain/DC correction is applied, including adjustments
+  below the former 0.1 dB and 16-bit DC thresholds. More files may be rewritten.
+* Album DC uses time weighting per actual channel, so equal-duration material
+  has equal weight regardless of storage sample rate.
+* LUFS K-weighting uses cascaded biquads for improved high-rate stability.
+  11025 Hz measurement uses exact 400 ms windows and fractional 100 ms hops.
+* Unshaped legacy dither uses full-amplitude high-pass TPDF at every bit depth,
+  including 24/32 bits. Dither remains off by default; shaped amplitudes remain.
+* --true-peak-mode extended adds screened longer 16x reconstruction for
+  transients, at higher CPU cost. It remains a finite estimate. Precise and
+  fast retain their existing FIR interpolation.
+* Reset all per-file legacy dither history and keep stereo noise-shaping phase
+  aligned at partial blocks, preventing cross-format transients and tail errors.
+* Preserve the signed 32-bit PCM minimum (-2147483648) instead of clamping it
+  one LSB above the format's valid negative endpoint.
 * By default, true-peak measurement uses 16x, 385-tap interpolation at every rate,
   reducing high-frequency under-read. Peak-limited gain/output can change;
   independent tone/reconstruction checks complement native kernel equality.
@@ -433,9 +447,11 @@ WaveGain v1.5.1
                           Silence/below-gate material uses manual gain only.
       --true-peak         Measure DC-corrected true peak and limit linear gain
                           to -1 dBTP by default, even with --noclip.
-      --true-peak-mode X  precise (default, 16x) or fast (4x at every rate).
+      --true-peak-mode X  precise (default, 16x), fast (4x), or extended.
                           Implies --true-peak; applies to output checks too.
-                          Both analyze all frames. Fast has more peak error;
+                          extended adds a longer 16x FIR with screened evaluation.
+                          It can cost substantially more CPU. All analyze all frames.
+                          All are finite estimates, including extended;
                           under-read can exceed the 0.1 dB gain reserve.
                           Separate from --fast; cannot combine with it.
       --peak-ceiling X    Set true-peak ceiling (-60..0 dBTP); implies --true-peak.
@@ -452,6 +468,8 @@ WaveGain v1.5.1
                           sample-rate-dependent coefficient; -d 1 is unshaped.
                           Light/Medium/Heavy knees: 10/6/3 kHz, respectively.
                           This is a separate family from the legacy F44 filters.
+                          Legacy -d 1 uses full high-pass TPDF at every bit depth;
+                          legacy -d 2..4 retain their F44 noise shaping.
 
 [Builds with recursive/pattern support]
   -z, --recursive  Search for files recursively, each folder as an album

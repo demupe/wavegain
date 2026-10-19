@@ -10,7 +10,7 @@ int main(void)
 {
 	const int formats[] = {WAV_FMT_8BIT, WAV_FMT_16BIT, WAV_FMT_24BIT, WAV_FMT_32BIT, WAV_FMT_AIFF};
 	const int widths[] = {8, 16, 24, 32, 16};
-	const Int64_t minimums[] = {-128, -32768, -8388608, -INT64_C(2147483647), -32768};
+	const Int64_t minimums[] = {-128, -32768, -8388608, -INT64_C(2147483648), -32768};
 	const double scales[] = {0., .01, 1., 4., 1e300};
 	double input[2][1031], actual[2][1031], expected[2][1031];
 	double *pcm[2] = {actual[0], actual[1]}, offsets[2] = {.001, -.002};
@@ -51,6 +51,21 @@ int main(void)
 	assert(!apply_plain_gain(pcm, 2, 1031, NULL, 1., 16));
 	actual[1][1030] = HUGE_VAL;
 	assert(!apply_plain_gain(pcm, 2, 1031, NULL, 1., 16));
+	/* Independent fundamental-amplitude measurement at a quarter LSB.
+	 * Too little dither suppresses this tone; correct TPDF preserves its
+	 * mean transfer while allowing the expected noise realization. */
+	for (int depth = 16; depth <= 32; depth += 8) {
+		int format = depth == 16 ? WAV_FMT_16BIT : depth == 24 ? WAV_FMT_24BIT : WAV_FMT_32BIT;
+		double sine = 0., cosine = 0.;
+		Init_Dither(depth, 0);
+		for (int n = 0; n < 192000; n++) {
+			double phase = 6.2831853071795864769 * 997 * n / 48000.;
+			double input = .25 * sin(phase) * ldexp(1., 32-depth);
+			Int64_t value = dither_output(1, 0, n & 31, input, 0, format);
+			sine += value * sin(phase); cosine += value * cos(phase);
+		}
+		assert(fabs(2. * hypot(sine, cosine) / 192000 - .25) < .01);
+	}
 	puts("Plain gain: all integer widths, DC, saturation, half-LSB boundaries, extreme/subnormal input and finite guards match legacy quantization");
 	return 0;
 }

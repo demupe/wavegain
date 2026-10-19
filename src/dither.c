@@ -175,11 +175,14 @@ Init_Dither ( int bits, int shapingtype )
 
 	memset ( Dither.ErrorHistory , 0, sizeof (Dither.ErrorHistory ) );
 	memset ( Dither.DitherHistory, 0, sizeof (Dither.DitherHistory) );
+	memset ( Dither.LastRandomNumber, 0, sizeof (Dither.LastRandomNumber) );
 
 	Dither.FilterCoeff = F [shapingtype];
 	Dither.Mask   = ((Uint64_t)-1) << (32 - bits);
 	Dither.Add    = 0.5     * ((1L << (32 - bits)) - 1);
-	Dither.Dither = 0.01*default_dither[index] / (((Int64_t)1) << bits);
+	/* Full-amplitude high-pass TPDF for unshaped quantization at every depth.
+	 * Shaped profiles retain their calibrated legacy amplitudes. */
+	Dither.Dither = shapingtype ? 0.01*default_dither[index] / (((Int64_t)1) << bits) : ldexp(1., -bits);
 }
 
 

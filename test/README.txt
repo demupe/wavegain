@@ -38,10 +38,13 @@ filter/loudness drivers. Windows wrappers quote compiler paths automatically.
 
 verified-release also runs feature_dsp with the release flags, checking FIR
 output and complete histories in default, SSE2-only and C-only builds.
-It also checks FIR backend selection and independent peak-amplitude accuracy.
+It also checks FIR backend selection, independent peak-amplitude accuracy,
+K-weighting, fractional timing and extended peak reconstruction.
 
-Core coverage (21 test groups on Windows)
+Core coverage (23 test groups on Windows)
 -----------------------------------------
+fundamental_dsp       Independent K-weighting, fractional window timing,
+                      extended reconstruction and conservative screening checks.
 docs                  Generated help/manuals and option documentation.
 support_contracts     Normal rejection vs crash/sanitizer error; Python -O guard.
 filters               All-rate scalar/SIMD/mono/history equivalence and the
@@ -74,6 +77,10 @@ followup_regressions  Six 2026-10-18 audit findings and supported format control
 edge_regressions      Legacy malformed WAVs, strict stdin/seekable EOF recovery,
                       exact stdout WAV/AIFF/Wave64, original hard-link IDs,
                       400 ms LUFS and numeric-option/quantization boundaries.
+precision_regressions Cross-file dither state, partial stereo shaper histories,
+                      mixed mono/stereo album DC and signed 32-bit endpoints;
+                      small corrections, mixed rates, long 32-bit DC means,
+                      11025 Hz duration and extended quantized-output peaks.
 windows_paths         Junction cycles and physical output containment. [Windows]
 windows_files         Real sharing-lock/read-only failures retain original and
                       completed output; retry after release succeeds. [Windows]

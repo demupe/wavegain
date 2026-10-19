@@ -1,4 +1,4 @@
-"""Exact native libebur128 comparison; optional CPU-only synthetic benchmark."""
+"""Exact locally adapted scalar/SIMD comparison; optional synthetic benchmark."""
 import argparse
 import hashlib
 import json
@@ -19,7 +19,7 @@ p.add_argument('--output', type=Path)
 args = p.parse_args()
 report = {'platform': platform.platform(), 'architecture': platform.machine(),
           'compiler': subprocess.check_output([*shlex.split(args.cc), '--version'], text=True).splitlines()[0],
-          'flags': args.cflags, 'reference': 'libebur128 v1.2.6, native architecture, FP contraction disabled',
+          'flags': args.cflags, 'reference': 'libebur128 v1.2.6 with local biquads/rational timing, FP contraction disabled',
           'optimized': 'R128Net-inspired kernels plus stereo block-energy SIMD and peak-only bypass',
           'benchmark': '60 s synthetic stereo 48 kHz (also 192 kHz peak-only), CPU only, five alternating runs, medians'}
 with tempfile.TemporaryDirectory(prefix='wavegain-loudness-kernels-') as temp:

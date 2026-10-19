@@ -281,30 +281,29 @@ static void wg_ebur_filter_double(ebur128_state *st, const double *src, size_t f
 	if ((st->mode & EBUR128_MODE_TRUE_PEAK) == EBUR128_MODE_TRUE_PEAK) wg_fast_true_peak(st, src, frames);
 #ifdef WG_METER_PAIR
 	if (st->channels == 2 && st->d->channel_map[0] != EBUR128_UNUSED && st->d->channel_map[1] != EBUR128_UNUSED) {
-		wg_vec s1 = {st->d->v[0][1], st->d->v[1][1]}, s2 = {st->d->v[0][2], st->d->v[1][2]};
-		wg_vec s3 = {st->d->v[0][3], st->d->v[1][3]}, s4 = {st->d->v[0][4], st->d->v[1][4]}, v = {0., 0.};
+		wg_vec v[8];
+		for (i = 0; i < 8; i++) {
+			v[i][0] = st->d->v[0][i]; v[i][1] = st->d->v[1][i];
+		}
 		for (i = 0; i < frames; i++) {
-			wg_vec result;
-			v = wg_load(src + 2 * i) - st->d->a[1] * s1 - st->d->a[2] * s2 - st->d->a[3] * s3 - st->d->a[4] * s4;
-			result = st->d->b[0] * v + st->d->b[1] * s1 + st->d->b[2] * s2 + st->d->b[3] * s3 + st->d->b[4] * s4;
-			memcpy(out + 2 * i, &result, sizeof(result));
-			s4 = s3; s3 = s2; s2 = s1; s1 = v;
+			wg_vec x = wg_load(src + 2 * i);
+			wg_vec y = st->d->shelf_b[0] * x + st->d->shelf_b[1] * v[0] +
+				st->d->shelf_b[2] * v[1] - st->d->shelf_a[0] * v[2] - st->d->shelf_a[1] * v[3];
+			wg_vec z = y - 2. * v[4] + v[5] - st->d->highpass_a[0] * v[6] - st->d->highpass_a[1] * v[7];
+			memcpy(out + 2 * i, &z, sizeof(z));
+			v[1] = v[0]; v[0] = x; v[3] = v[2]; v[2] = y;
+			v[5] = v[4]; v[4] = y; v[7] = v[6]; v[6] = z;
 		}
 		for (c = 0; c < 2; c++) {
-			st->d->v[c][0] = v[c]; st->d->v[c][1] = s1[c]; st->d->v[c][2] = s2[c];
-			st->d->v[c][3] = s3[c]; st->d->v[c][4] = s4[c];
+			for (i = 0; i < 8; i++) st->d->v[c][i] = v[i][c];
 			FLUSH_MANUALLY
 		}
 	} else
 #endif
 	for (c = 0; c < st->channels; c++) {
-		double *v = st->d->v[c];
 		if (st->d->channel_map[c] == EBUR128_UNUSED) continue;
-		for (i = 0; i < frames; i++) {
-			v[0] = src[i * st->channels + c] - st->d->a[1] * v[1] - st->d->a[2] * v[2] - st->d->a[3] * v[3] - st->d->a[4] * v[4];
-			out[i * st->channels + c] = st->d->b[0] * v[0] + st->d->b[1] * v[1] + st->d->b[2] * v[2] + st->d->b[3] * v[3] + st->d->b[4] * v[4];
-			v[4] = v[3]; v[3] = v[2]; v[2] = v[1]; v[1] = v[0];
-		}
+		for (i = 0; i < frames; i++)
+			out[i * st->channels + c] = ebur128_k_sample(st, c, src[i * st->channels + c]);
 		FLUSH_MANUALLY
 	}
 	TURN_OFF_FTZ
