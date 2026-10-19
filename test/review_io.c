@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/types.h>
-#include "../misc.h"
+#include "../src/misc.h"
 #ifdef _WIN32
 #include <io.h>
 #define REVIEW_TELL _ftelli64
@@ -58,15 +58,15 @@ static int review_close(FILE *f)
 #define fseeko review_seek
 #endif
 #define fclose review_close
-#include "../audio.c"
+#include "../src/audio.c"
 #undef malloc
 #undef fread
 #undef fwrite
 #undef fseeko
 #undef _fseeki64
 #undef fclose
-#include "../main.h"
-#include "../wavegain.h"
+#include "../src/main.h"
+#include "../src/wavegain.h"
 
 int write_to_log;
 char log_file_name[512];
@@ -137,16 +137,20 @@ static void check_finish_failure(int failure)
 static void check_gain_numbers(void)
 {
 	unsigned char encoded[8];
-	double values[] = {0., -0., 0.5, 2., 0x1p40, 0x1p-1022, 0x1p-1074, HUGE_VAL, NAN};
+	double values[] = {0., -0., 0.5, 2., 0x1p40, 0x1p-1022, 0x1p-1074,
+		-0x1p-1074, 0x0.fffffffffffffp-1022, -0x0.fffffffffffffp-1022,
+		0x1.fffffffffffffp1023, HUGE_VAL, NAN};
 	size_t i;
 	for (i = 0; i < sizeof(values) / sizeof(values[0]); i++) {
 		double value;
 		write_d64_le(encoded, values[i]);
 		value = read_d64_le(encoded);
 		assert(isnan(values[i]) ? isnan(value) : value == values[i]);
+		if (value == 0.) assert(!!signbit(value) == !!signbit(values[i]));
 		write_d64_be(encoded, values[i]);
 		value = read_d64_be(encoded);
 		assert(isnan(values[i]) ? isnan(value) : value == values[i]);
+		if (value == 0.) assert(!!signbit(value) == !!signbit(values[i]));
 	}
 }
 

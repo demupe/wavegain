@@ -1,4 +1,4 @@
-# WaveGain v1.5.0
+# WaveGain v1.5.1
 
 [English](README) | 日本語
 
@@ -94,7 +94,7 @@ DCオフセット補正は既定でトラック単位です。`-q`でアルバ�
 
 MITライセンスのlibebur128を同梱し、R128Netを参考にしたCの最適化、ステレオのブロックエネルギー計算のSIMD化、ピーク測定専用の処理経路を追加しています。libebur128の別途インストールや.NETランタイムは不要です。
 
-実装、ライセンス、性能測定、精度の範囲については[実装・検証レポート](doc/loudness-implementation.md)を参照してください。
+実装、ライセンス、精度の条件は[実装概要](doc/design/loudness-implementation.md)を参照してください。
 
 ## 対応形式と大容量ファイル
 
@@ -151,11 +151,13 @@ sudo make install prefix=/usr
 
 インストールターゲットはGNU形式の`install`オプションを使用します。macOSでは、ビルドした実行ファイルをPATHの通ったディレクトリへコピーする方法も利用できます。
 
-Windowsでは、MSYS2のMINGW64シェルでMinGW-w64 GCCと同じMakefileを使用するか、`mswindows/`内のプロジェクトファイルを利用できます。MinGWのリリースビルドは`_FORTIFY_SOURCE`用のlibsspを静的リンクし、システムDLLだけに依存します。以前のMinGWビルドはWineで確認されていますが、新しい出力・測定モードのWindows実機検証は未実施です。
+Windowsでは、MSYS2のMINGW64シェルでMinGW-w64 GCCと同じMakefileを使用するか、`mswindows/`内のプロジェクトファイルを利用できます。MinGWのリリースビルドは`_FORTIFY_SOURCE`用のlibsspを静的リンクし、システムDLLだけに依存します。LLVM-MinGW ClangによるWindows ARM64実機では、出力・測定モードを含む回帰テストが通過しています。Windows x64実機でも、手書きアセンブラを含む共有テストを確認しています。MSVC・GCCや他のx64 CPUでの検証は残っています。
 
 `debian/`のパッケージ設定は過去のもので、保守されていません。古いdebuild手順には依存せず、ソースからビルドしてください。
 
 ## テストと開発
+
+本体のCソース・ヘッダーと生成ヘルプは`src/`、テストと音声サンプルは`test/`、開発ツールは`tools/`、同梱ライブラリーは`vendor/`にまとめています。設計資料は`doc/`、詳細な調査記録はgit管理対象外の`local-research/`に保存します。ビルドは従来どおりリポジトリーのルートで実行し、実行ファイルもルートに生成されます。
 
 | コマンド | 内容 |
 | --- | --- |
@@ -163,16 +165,39 @@ Windowsでは、MSYS2のMINGW64シェルでMinGW-w64 GCCと同じMakefileを使�
 | `make check` | 回帰テスト一式を実行（Python 3が必要） |
 | `make check-sanitize` | ASan/UBSanで再ビルドし、テストを実行 |
 | `make check-interop` | FFmpegとの比較（ffmpeg/ffprobeが必要） |
-| `make verified-release` | ReplayGainの一致検証付きリリースビルド |
+| `make verified-release` | ReplayGain・ラウドネスの一致検証付きリリースビルド |
 | `make check-loudness` | ラウドネス測定処理をネイティブの参照実装と比較 |
 
 PCM・浮動小数点変換、ゲインと取り消し、メタデータ、不正ファイル、5 GiBのWave64を含むスパース大容量ファイル、出力パス、ラウドネス、True Peak上限、リサンプリング、ディザの信号特性を検証します。未完了の検証項目は[TODO](TODO)に記録しています。
 
-`verified-release`は、同じコンパイラー・フラグで作成したスカラー版とReplayGainのフィルター状態・変換出力を比較し、不一致なら実行ファイルを削除します。`VERIFY_SIMD=auto`が既定で、どちらのバックエンドも許可します。`VERIFY_SIMD=1`はステレオSIMD版、`VERIFY_SIMD=0`はスカラー版を要求します。
+`verified-release`は、同じコンパイラー・フラグで作成したスカラー版とReplayGainのフィルター状態・変換出力を比較し、高レートFIRの出力と履歴も参照畳み込みと照合します。不一致なら実行ファイルを削除します。`VERIFY_SIMD=auto`が既定で、どちらのバックエンドも許可します。`VERIFY_SIMD=1`はステレオSIMD版、`VERIFY_SIMD=0`はスカラー版を要求します。
 
-CLIヘルプとマニュアルの正本は[doc/help.json](doc/help.json)です。変更後は`make docs`で生成し、`make check-docs`で英語READMEのヘルプ、`help_generated.h`、manページ、HTMLマニュアルの同期を検査します。日本語READMEは手動翻訳のため、オプションや挙動の変更時にはこちらも更新してください。
+GNU互換コンパイラーのx86_64ビルドは、ReplayGainの履歴をレジスターに保持するSSE2アセンブラと、高レートFIRの8出力並列処理を使用します。AVX2は実行時に判定し、非対応CPUではSSE2を使用します。ビルド時に`-DWAVEGAIN_X86_ASM=0`を定義するとC経路、`-DWAVEGAIN_X86_AVX2=0`でSSE2のみのFIR経路を検証できます。FMAを全体で有効にしたビルドのFIRは、従来の丸めを保つためスカラー経路を使用します。
+
+CLIヘルプとマニュアルの正本は[doc/help.json](doc/help.json)です。変更後は`make docs`で生成し、`make check-docs`で英語READMEのヘルプ、`src/help_generated.h`、manページ、HTMLマニュアルの同期を検査します。日本語READMEは手動翻訳のため、オプションや挙動の変更時にはこちらも更新してください。
+
+Clangでは`make verified-release CC=clang RELEASE_OPT=-O3 LTO_FLAGS=-flto=thin`で最適化ビルドを検証できます。GCCのLTOは`LTO_FLAGS=-flto`を指定します。通常ビルドは従来どおり`-O2`です。`verified-release`はラウドネス処理と参照実装の一致も検証します。非有限値の検査と演算の正確性を保つため、fast-mathは使用しないでください。
+
+Windowsでは`python tools/check_windows.py --cc aarch64-w64-mingw32-clang --optimized`でネイティブの回帰試験を実行できます。`--optimized`を省略すると`-O2`、コンパイラーを`x86_64-w64-mingw32-clang`に変えるとx64向けになります。ARM64上でのx64試験はWindowsのエミュレーションを利用します。
+
+テスト一覧と個別実行の方法は[test/README.txt](test/README.txt)にまとめています。`python test/run_suite.py --list`で一覧、`--only NAME`で指定グループを実行できます。Windowsのビルド用スクリプトに`--ubsan`を追加すると、未定義動作と浮動小数点から整数への変換オーバーフローも検査します。
+
+旧版との出力比較には`test/pcm_equivalence.py`、速度と出力一致の同時測定には`tools/benchmark_native.py`を使用できます。どちらも`--reference`と`--candidate`で実行ファイルを指定し、ベンチマークでは`--output timings.json`も指定します。Windowsでは`.exe`を含むパスを指定してください。測定にはウォームキャッシュを使用するため、実素材や低速ストレージでの性能を保証するものではありません。詳細な調査記録・計測JSON・レビュー履歴は、Git管理外の`local-research/`で管理します。このフォルダはcloneやリリースには含まれません。
 
 ## 動作の変更点
+
+### バージョン1.5.1
+
+- Wave64のUndo倍率、不完全なPCMフレーム、拡張WAVの矛盾した精度・拡張長を、原本の書き換え前に拒否します。
+- 同じ入力やファイルIDが同じ別名を各処理バッチの開始前に拒否し、ゲインの二重適用を防ぎます。先に完了した別バッチの処理は保持されます。
+- Windowsのコマンド構築にシェルの長さ上限を適用し、環境変数用ファイル名の固定長コピーを廃止しました。アルバム・コマンド用DC表示も大きなfloat音声の値を安全に扱います。
+- ARM64のステレオReplayGain解析で履歴を保持し、2段のフィルターを連続処理します。ピーク・DC集計もローカル変数で行い、高速化しました。フィルター演算、DCの加算順序、出力音声を維持します。
+- モノラルのReplayGain解析で同一の左右フィルター計算を共用し、高速化しました。ステレオ入力へ切り替わった後は独立した処理に戻し、履歴・丸め・出力音声を維持します。
+- Windowsの再帰探索では、途中で見つかったジャンクションなどのディレクトリリンクをたどりません。明示指定したリンク先は入力に使えます。出力先は実際の場所で判定し、別名でも入力内にある場所や、場所を確認できない場合は拒否します。
+- 整数PCM入力と高サンプルレート用FIRの履歴参照を高速化しました。復号後のサンプル値とフィルターの加算順序を維持します。
+- ディザ・リミッターなしの整数ゲイン適用を専用化しました。従来の量子化、DC補正、飽和境界を維持します。
+- Windows x64で、gainメタデータ内の極小のbinary64値が正しく書き込まれるようにしました。
+- Windowsのディレクトリエラー表示で元のエラー番号を保持し、メッセージ中の`%`やシステムメッセージ取得失敗を安全に処理します。
 
 ### バージョン1.5.0
 
@@ -230,6 +255,7 @@ DebianパッケージとREADME・Makefileなどの追加資料の著作権表記
 
 - [英語README・全オプション](README)
 - [HTMLマニュアル](doc/manual/index.html)
+- [開発・性能測定・修正履歴の索引](doc/README.txt)
 - [ヘルプの正本](doc/help.json)
 
 日本語版は上記の使い方・動作説明の翻訳です。CLIメッセージと自動生成のオプションリファレンスは英語です。

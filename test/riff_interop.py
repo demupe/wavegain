@@ -3,8 +3,9 @@ import pathlib
 import struct
 import subprocess
 import tempfile
+from test_support import parse_binary
 
-binary = str(pathlib.Path(__file__).resolve().parents[1] / "wavegain")
+binary = str(parse_binary(__doc__))
 FRAMES = 3 * 44100
 
 

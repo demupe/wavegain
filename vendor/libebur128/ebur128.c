@@ -688,7 +688,7 @@ EBUR128_FILTER(double, -1.0, 1.0)
 #endif
 
 #ifndef WG_EBUR_REFERENCE
-#include "../../loudness_fast.h"
+#include "../../src/loudness_fast.h"
 #endif
 
 static double ebur128_energy_to_loudness(double energy) {

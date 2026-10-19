@@ -5,7 +5,42 @@
 #endif
 #include <stdio.h>
 #ifdef _WIN32
-int main(void) { puts("Output publication: POSIX fault injection skipped on Windows"); return 0; }
+#include <assert.h>
+#include <string.h>
+#include <windows.h>
+#include "../src/output.c"
+static void write_file(const char *path, const char *text)
+{
+	FILE *out = fopen(path, "wb");
+	assert(out && fwrite(text, 1, strlen(text), out) == strlen(text) && !fclose(out));
+}
+static void expect_file(const char *path, const char *text)
+{
+	char bytes[32] = {0};
+	FILE *in = fopen(path, "rb");
+	assert(in && fread(bytes, 1, sizeof(bytes), in) == strlen(text) && !fclose(in));
+	assert(!strcmp(bytes, text));
+}
+int main(void)
+{
+	char base[MAX_PATH], folder[MAX_PATH], from[MAX_PATH + 32], to[MAX_PATH + 32];
+	DWORD length = GetTempPathA(sizeof(base), base);
+	assert(length && length < sizeof(base));
+	assert(GetTempFileNameA(base, "wgp", 0, folder) && DeleteFileA(folder) && CreateDirectoryA(folder, NULL));
+	assert(snprintf(from, sizeof(from), "%s\\temporary", folder) > 0);
+	assert(snprintf(to, sizeof(to), "%s\\destination", folder) > 0);
+	write_file(from, "new audio");
+	assert(wg_output_publish(from, to));
+	expect_file(to, "new audio");
+	assert(GetFileAttributesA(from) == INVALID_FILE_ATTRIBUTES);
+	/* A destination appearing after preflight must still never be replaced. */
+	write_file(from, "another audio");
+	assert(!wg_output_publish(from, to));
+	expect_file(to, "new audio"); expect_file(from, "another audio");
+	assert(DeleteFileA(from) && DeleteFileA(to) && RemoveDirectoryA(folder));
+	puts("Windows publication: successful move and post-preflight collision preserve destination and temporary bytes");
+	return 0;
+}
 #else
 #include <assert.h>
 #include <stdarg.h>
@@ -33,7 +68,7 @@ static int test_rename(const char *, const char *, unsigned int);
 static long test_syscall(long, ...);
 #define syscall test_syscall
 #endif
-#include "../output.c"
+#include "../src/output.c"
 #undef link
 #undef write
 #undef renamex_np

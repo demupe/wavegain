@@ -1,6 +1,6 @@
 #include <assert.h>
-#include "../audio.c"
-#include "../w64.c"
+#include "../src/audio.c"
+#include "../src/w64.c"
 
 static void tag_guid(unsigned char *guid, const char *tag)
 {

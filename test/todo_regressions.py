@@ -1,15 +1,19 @@
 """Behavioral regressions for DC clipping, album peaks, progress and shared help."""
 import json
 import math
+import os
 from pathlib import Path
 import struct
-import subprocess
 import tempfile
 
-from investigate_todo import GAIN, PROGRESS, run, write_fixture
+from test_support import GAIN, PROGRESS, parse_binary, run_cli, write_fixture
 
 ROOT = Path(__file__).resolve().parents[1]
-BINARY = ROOT / "wavegain"
+BINARY = parse_binary(__doc__)
+
+
+def run(binary, args):
+    return run_cli(binary, args, text=True)
 
 
 def samples(path):
@@ -116,17 +120,17 @@ with tempfile.TemporaryDirectory(prefix="wavegain-todo-regressions-") as temp:
     empty = folder / "empty.wav"
     write_fixture(empty, 44100, 0)
     before = empty.read_bytes()
-    result = subprocess.run([str(BINARY), "-y", str(empty)], capture_output=True, text=True)
-    assert result.returncode == 1
+    result = run_cli(BINARY, ['-y', empty], success=False, text=True)
     assert empty.read_bytes() == before and not PROGRESS.findall(result.stderr)
     # The limiter has documented semantics: its cap stays enabled unless -n.
     source.write_bytes(original)
     capped = float(GAIN.search(run(BINARY, ["-c", "-t", "-g", "12", source]).stderr).group(1))
     uncapped = float(GAIN.search(run(BINARY, ["-c", "-n", "-t", "-g", "12", source]).stderr).group(1))
     assert uncapped > capped
-    # Platform-conditional generated help matches this POSIX build exactly.
+    # Platform-conditional generated help matches the native build exactly.
     definition = json.loads((ROOT / "doc/help.json").read_text())
-    expected = "".join(block["text"] for block in definition["blocks"] if block["condition"] != "_WIN32")
+    expected = "".join(block["text"] for block in definition["blocks"]
+                       if block["condition"] != "_WIN32" or os.name == "nt")
     help_text = run(BINARY, ["-h"]).stdout.split("\n", 1)[1]
     assert help_text == expected
     assert help_text.index("Copyright") > help_text.index("INPUT FILES")

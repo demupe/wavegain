@@ -6,9 +6,10 @@ import struct
 import subprocess
 import tempfile
 import wave
+from test_support import parse_binary
 
 ROOT = Path(__file__).resolve().parents[1]
-BIN = ROOT / 'wavegain'
+BIN = parse_binary(__doc__)
 
 
 def command(args):

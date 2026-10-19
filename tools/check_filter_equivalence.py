@@ -8,7 +8,8 @@ import shlex
 import subprocess
 import tempfile
 
-from benchmark_conversion import ROOT, variant_sources
+from benchmark_conversion import variant_sources
+from source_snapshot import revision_sources, write_flat_sources
 
 API_PROBE = r'''
 #include <math.h>
@@ -63,9 +64,7 @@ def main():
     parser.add_argument("--output", type=Path)
     parser.add_argument("--ref", default="74e50db", help="Git source snapshot for the historical prototype")
     args = parser.parse_args()
-    names = subprocess.check_output(["git", "ls-tree", "--name-only", args.ref], cwd=ROOT, text=True).splitlines()
-    original = {name: subprocess.check_output(["git", "show", f"{args.ref}:{name}"], cwd=ROOT)
-                for name in names if name.endswith((".c", ".h"))}
+    original = revision_sources(args.ref)
     report = {"source_ref": args.ref}
     with tempfile.TemporaryDirectory(prefix="wavegain-filter-equivalence-") as temp:
         folder = Path(temp)
@@ -73,8 +72,7 @@ def main():
             outputs = []
             for variant in ("baseline", "pair_filter"):
                 build = folder / (mode + variant); build.mkdir()
-                for name, data in variant_sources(variant, original).items():
-                    (build / name).write_bytes(data)
+                write_flat_sources(build, variant_sources(variant, original), ref=args.ref)
                 (build / "probe.c").write_text(PROBE)
                 binary = build / "probe"
                 subprocess.run([*shlex.split(args.cc), "-O2", "-DHAVE_CONFIG_H", *flags,

@@ -3,9 +3,8 @@ import argparse
 import json
 from pathlib import Path
 import re
-import subprocess
+from source_snapshot import SRC, revision_sources
 
-ROOT = Path(__file__).resolve().parents[1]
 RATES = [96000,88200,64000,48000,44100,32000,24000,22050,16000,12000,11025,8000]
 
 def tables(text, name):
@@ -64,8 +63,8 @@ def main():
     parser.add_argument('--ref',default='3fe2589')
     parser.add_argument('--output',type=Path)
     args = parser.parse_args()
-    old = subprocess.check_output(['git','show',f'{args.ref}:gain_analysis.c'],cwd=ROOT).decode('latin1')
-    current = (ROOT/'gain_analysis.c').read_bytes().decode('latin1')
+    old = revision_sources(args.ref)['gain_analysis.c'].decode('latin1')
+    current = (SRC/'gain_analysis.c').read_bytes().decode('latin1')
     report = {'baseline_ref':args.ref,'method':'Schur reciprocal-polynomial recursion in binary64; P(1) sign and real-pole bisection',
               'baseline':investigate(old),'working_tree':investigate(current)}
     assert all(entry['stable'] for table in report['working_tree'].values() for entry in table.values())

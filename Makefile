@@ -6,14 +6,16 @@ endif
 TARGET   = wavegain
 CPPFLAGS += -D_FILE_OFFSET_BITS=64
 DEFS     = -DHAVE_CONFIG_H
+RELEASE_OPT ?= -O2
+LTO_FLAGS ?=
 LIBS     = -lm
 # MinGW: _FORTIFY_SOURCE (release builds) needs libssp. Link it statically so
 # the .exe depends only on system DLLs (KERNEL32, msvcrt).
 ifneq ($(findstring mingw,$(shell $(CC) -dumpmachine 2>/dev/null)),)
 LIBS    += -Wl,-Bstatic -lssp -Wl,-Bdynamic
 endif
-SOURCES := $(wildcard *.c)
-HEADERS := $(wildcard *.h)
+SOURCES := $(wildcard src/*.c)
+HEADERS := $(wildcard src/*.h)
 VENDOR := $(wildcard vendor/libebur128/*)
 
 prefix   = /usr/local
@@ -34,7 +36,7 @@ debug: CFLAGS += -g3 -Og -Wall -Wextra -Wpedantic -D_FORTIFY_SOURCE=2
 # -s: Strip executable (remove all symbol table and relocation information)
 # -O2: Optimize level 2 and activate default FORTIFY_SOURCE=2 in most setups
 # -D_FORTIFY_SOURCE=2: explicitely enable additional compile-time and run-time checks for several libc functions
-release: CFLAGS += -s -O2 -D_FORTIFY_SOURCE=2
+release: CFLAGS += -s $(RELEASE_OPT) $(LTO_FLAGS) -D_FORTIFY_SOURCE=2
 
 # Run clean before compilation even with parallel make.
 debug release asan:
@@ -48,12 +50,14 @@ VERIFY_SIMD ?= auto
 ifeq ($(filter auto 0 1,$(VERIFY_SIMD)),)
 $(error VERIFY_SIMD must be auto, 0 or 1)
 endif
-verified-release: override CFLAGS += -s -O2 -D_FORTIFY_SOURCE=2
+verified-release: override CFLAGS += -s $(RELEASE_OPT) $(LTO_FLAGS) -D_FORTIFY_SOURCE=2
 verified-release: override CPPFLAGS += -D_FILE_OFFSET_BITS=64
 verified-release:
 	$(MAKE) clean
 	$(MAKE) $(TARGET) CC="$(CC)" CPPFLAGS="$(CPPFLAGS)" CFLAGS="$(CFLAGS)" DEFS="$(DEFS)" LDFLAGS="$(LDFLAGS)"
 	python3 test/filter_regressions.py --cc "$(CC)" --cflags="$(CPPFLAGS) $(CFLAGS) $(DEFS)" --ldflags="$(LDFLAGS) $(LIBS)" $(if $(filter 0 1,$(VERIFY_SIMD)),--expect-simd $(VERIFY_SIMD)) --cli "./$(TARGET)" || { $(RM) "$(TARGET)"; exit 1; }
+	python3 test/run_suite.py --only feature_dsp --cc "$(CC)" --cflags="$(CPPFLAGS) $(CFLAGS) $(DEFS)" --ldflags="$(LDFLAGS) $(LIBS)" || { $(RM) "$(TARGET)"; exit 1; }
+	python3 test/loudness_kernels.py --cc "$(CC)" --cflags="$(CPPFLAGS) $(CFLAGS) $(DEFS)" --ldflags="$(LDFLAGS) $(LIBS)" || { $(RM) "$(TARGET)"; exit 1; }
 
 # ASan and UBSan build.
 # Find some run-time errors that debug build misses.
@@ -61,14 +65,14 @@ verified-release:
 # -fsanitize=address,undefined: check memory safety and undefined behavior
 # -fno-omit-frame-pointer: recommended to generate better stack traces on debugging
 #: needed on some platforms to avoid run-time errors without using LD_PRELOAD
-SANITIZER_FLAGS = -g3 -O1 -U_FORTIFY_SOURCE -fsanitize=address,undefined -fno-omit-frame-pointer
+SANITIZER_FLAGS = -g3 -O1 -U_FORTIFY_SOURCE -fsanitize=address,undefined,float-cast-overflow -fno-omit-frame-pointer
 asan: CFLAGS += $(SANITIZER_FLAGS)
 
 check-sanitize:
 	$(MAKE) asan
 	UBSAN_OPTIONS=halt_on_error=1 $(MAKE) check CFLAGS="$(CFLAGS) $(SANITIZER_FLAGS)"
 
-$(TARGET): $(SOURCES) $(HEADERS) $(VENDOR) help_generated.h
+$(TARGET): $(SOURCES) $(HEADERS) $(VENDOR) src/help_generated.h
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEFS) $(LDFLAGS) -o $(TARGET) $(SOURCES) $(LIBS)
 
 install: $(TARGET)
@@ -77,21 +81,9 @@ install: $(TARGET)
 uninstall:
 	rm -f $(DESTDIR)$(bindir)/$(TARGET)
 
-check: $(TARGET) check-docs check-filters check-loudness
-	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEFS) $(LDFLAGS) -UNDEBUG -o test/portability test/portability.c w64.c $(LIBS)
-	./test/portability
-	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEFS) $(LDFLAGS) -UNDEBUG -o test/wave64 test/wave64.c $(LIBS)
-	./test/wave64
-	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEFS) $(LDFLAGS) -UNDEBUG -o test/review_io test/review_io.c w64.c wavegain.c gain_analysis.c dither.c misc.c loudness.c resample.c output.c $(LIBS)
-	./test/review_io
-	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEFS) $(LDFLAGS) -UNDEBUG -o test/feature_dsp test/feature_dsp.c resample.c $(LIBS)
-	./test/feature_dsp
-	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEFS) $(LDFLAGS) -UNDEBUG -o test/output_publish test/output_publish.c $(LIBS)
-	./test/output_publish
-	$(RM) test/portability test/wave64 test/review_io test/feature_dsp test/output_publish
-	python3 test/todo_regressions.py
-	python3 test/review_regressions.py
-	python3 test/feature_regressions.py
+# Both POSIX and Windows use test/run_suite.py as the single inventory.
+check: $(TARGET)
+	python3 test/run_suite.py --cc "$(CC)" --cflags="$(CPPFLAGS) $(CFLAGS) $(DEFS)" --ldflags="$(LDFLAGS) $(LIBS)" --binary ./$(TARGET)
 
 docs:
 	python3 tools/generate_help.py
@@ -99,20 +91,17 @@ docs:
 check-docs:
 	python3 tools/generate_help.py --check
 
-check-filters:
-	python3 test/filter_regressions.py --cc "$(CC)" --cflags="$(CPPFLAGS) $(CFLAGS)"
+check-filters: $(TARGET)
+	python3 test/filter_regressions.py --cc "$(CC)" --cflags="$(CPPFLAGS) $(CFLAGS) $(DEFS)" --ldflags="$(LDFLAGS) $(LIBS)" --cli ./$(TARGET)
 
 check-loudness:
-	python3 test/loudness_kernels.py --cc "$(CC)" --cflags="$(CPPFLAGS) $(CFLAGS)"
+	python3 test/loudness_kernels.py --cc "$(CC)" --cflags="$(CPPFLAGS) $(CFLAGS) $(DEFS)" --ldflags="$(LDFLAGS) $(LIBS)"
 
 check-interop: $(TARGET)
-	python3 test/wave64_interop.py
-	python3 test/filter_interop.py
-	python3 test/riff_interop.py
-	python3 test/feature_interop.py
+	python3 test/run_suite.py --suite interop --binary ./$(TARGET)
 
 clean:
-	rm -f $(TARGET) test/portability test/wave64 test/review_io test/feature_dsp test/output_publish
+	rm -f $(TARGET) test/portability test/wave64 test/review_io test/feature_dsp test/gain_kernel test/windows_errors test/output_publish test/command_regressions
 
 distclean: clean
 

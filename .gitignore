@@ -1,4 +1,5 @@
 wavegain
+/wavegain.exe
 *.dSYM/
 __pycache__/
 debian/*.debhelper.log
@@ -7,3 +8,6 @@ debian/files
 debian/wavegain/
 .*
 !.gitignore
+
+# Local investigation reports, benchmark evidence and review notes.
+/local-research/

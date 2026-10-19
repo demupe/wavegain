@@ -1,17 +1,13 @@
 """Regressions for the October 2026 safety review (stdlib only)."""
-import argparse
 import math
 from pathlib import Path
 import struct
-import subprocess
 import sys
 import tempfile
+from test_support import parse_binary, run_cli
 
 ROOT = Path(__file__).resolve().parents[1]
-parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument('--binary', type=Path, default=ROOT / 'wavegain')
-args = parser.parse_args()
-BINARY = args.binary.resolve()
+BINARY = parse_binary(__doc__)
 RATE = 44100
 FRAMES = 4411  # odd mono data length after conversion to 8/24 bit
 PCM = [round(6000 * math.sin(i * .2)) for i in range(FRAMES)]
@@ -46,12 +42,7 @@ def aiff(bits=16, *, aifc=None, offset=0):
 
 
 def run(folder, *flags, success=True, input_data=None):
-    result = subprocess.run([str(BINARY), *map(str, flags)], cwd=folder,
-                            input=input_data, capture_output=True, timeout=20)
-    diagnostic = result.stderr.decode(errors='replace')
-    assert 'Sanitizer' not in diagnostic and 'runtime error:' not in diagnostic, diagnostic
-    assert (result.returncode == 0) == success, diagnostic
-    return result
+    return run_cli(BINARY, flags, cwd=folder, input_data=input_data, success=success, timeout=20)
 
 
 def chunks(data):

@@ -5,7 +5,7 @@
 #include <math.h>
 #include <stdint.h>
 #include <time.h>
-#include "../loudness.c"
+#include "../src/loudness.c"
 
 static void emit_state(ebur128_state *s)
 {
@@ -63,8 +63,50 @@ static void adapter_regression(unsigned long rate, unsigned int channels)
 	}
 }
 
+/* Stress interpolation maxima at different magnitudes and caller boundaries.
+ * The runner compares these bytes with the original libebur128 kernels. */
+static void peak_patterns(void)
+{
+	static const unsigned long rates[] = {44100, 48000, 96000, 192000};
+	static const size_t chunks[] = {1, 2, 3, 4, 63, 64, 65, 511};
+	unsigned int r, channels, pattern;
+	for (r = 0; r < sizeof(rates) / sizeof(rates[0]); r++)
+	for (channels = 1; channels <= 2; channels++)
+	for (pattern = 0; pattern < 4; pattern++) {
+		double audio[4098], value;
+		size_t i, pos = 0, block = 0;
+		uint32_t rng = 17;
+		ebur128_state *s = ebur128_init(channels, rates[r], EBUR128_MODE_TRUE_PEAK);
+		assert(s);
+		for (i = 0; i < 2049 * channels; i++) {
+			rng = rng * UINT32_C(1664525) + UINT32_C(1013904223);
+			value = (double)rng / 2147483648. - 1.;
+			if (pattern == 0) value = i & 1 ? -0. : 0.;
+			if (pattern == 1) value = ldexp(value, (int)(i % 201) - 100);
+			if (pattern == 2) value = i % 127 ? 1e-38 * value : (i & 1 ? -1. : 1.);
+			if (pattern == 3) value = nextafterf((float)value, i & 1 ? INFINITY : -INFINITY);
+			audio[i] = value;
+		}
+		while (pos < 2049) {
+			size_t n = chunks[block++ % (sizeof(chunks) / sizeof(chunks[0]))];
+			unsigned int ch;
+			if (n > 2049 - pos) n = 2049 - pos;
+			assert(ebur128_add_frames_double(s, audio + pos * channels, n) == EBUR128_SUCCESS);
+			for (ch = 0; ch < channels; ch++) {
+				assert(ebur128_prev_true_peak(s, ch, &value) == EBUR128_SUCCESS);
+				assert(fwrite(&value, sizeof(value), 1, stdout) == 1);
+				assert(ebur128_true_peak(s, ch, &value) == EBUR128_SUCCESS);
+				assert(fwrite(&value, sizeof(value), 1, stdout) == 1);
+			}
+			pos += n;
+		}
+		ebur128_destroy(&s);
+	}
+}
+
 static void regression(void)
 {
+	peak_patterns();
 	static const unsigned long rates[] = {8000,11025,12000,16000,22050,24000,32000,44100,48000,64000,88200,96000,176400,192000};
 	unsigned int r, channels, histogram, chunked;
 	for (r = 0; r < sizeof(rates) / sizeof(rates[0]); r++)
@@ -130,6 +172,10 @@ static void benchmark(void)
 int main(int argc, char **argv)
 {
 	(void)argv;
+#ifdef WG_TP_HAVE_AVX2
+	fprintf(stderr, "Dense true peak: runtime AVX2 %s.\n",
+	        __builtin_cpu_supports("avx2") ? "enabled" : "unavailable; using baseline SIMD");
+#endif
 	if (argc > 1) benchmark(); else regression();
 	return 0;
 }

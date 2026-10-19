@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 p = argparse.ArgumentParser(description=__doc__)
 p.add_argument('--cc', default='cc')
 p.add_argument('--cflags', default='-O2')
+p.add_argument('--ldflags', default='-lm')
 p.add_argument('--benchmark', action='store_true')
 p.add_argument('--output', type=Path)
 args = p.parse_args()
@@ -26,10 +27,12 @@ with tempfile.TemporaryDirectory(prefix='wavegain-loudness-kernels-') as temp:
     binaries = {}
     hashes = {}
     for name, flags in [('reference', ['-DWG_EBUR_REFERENCE']),
-                        ('previous', ['-DWG_EBUR_EXTRA_REFERENCE']), ('optimized', [])]:
+                        ('previous', ['-DWG_EBUR_EXTRA_REFERENCE']),
+                        ('pair_only', ['-DWG_TP_PAIR_ONLY']),
+                        ('no_avx2', ['-DWG_TP_AVX2=0']), ('optimized', [])]:
         binary = folder / name
         subprocess.run([*shlex.split(args.cc), *shlex.split(args.cflags), '-UNDEBUG', *flags,
-                        str(ROOT / 'test/loudness_kernels.c'), '-o', str(binary), '-lm'], check=True)
+                        str(ROOT / 'test/loudness_kernels.c'), '-o', str(binary), *shlex.split(args.ldflags)], check=True)
         binaries[name] = binary
         output = subprocess.check_output([str(binary)])
         hashes[name] = hashlib.sha256(output).hexdigest()
