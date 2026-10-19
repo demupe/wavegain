@@ -241,7 +241,7 @@ and HTML manual. Do not edit the option reference below directly.
 
 Behavior changes
 -------------------------------------------------------------------------------
-Unreleased:
+Version 1.5.1:
 * GNU-compatible x86_64 builds keep ReplayGain filter histories in SSE2
   registers and evaluate eight high-rate FIR outputs in parallel, selecting
   AVX2 when available. Per-sample operation order, streaming state and output
