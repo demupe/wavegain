@@ -1,4 +1,4 @@
-WaveGain v1.5.1
+WaveGain v1.5.2
 ===============================================================================
 
 Japanese documentation / 日本語版: [README.ja.md](README.ja.md)
@@ -400,7 +400,7 @@ Documentation (from wavegain --help)
 -------------------------------------------------------------------------------
 Generated from doc/help.json; run make docs after editing.
 
-WaveGain v1.5.1
+WaveGain v1.5.2
  Usage: wavegain [options] input.wav [...] (also .w64)
 
  OPTIONS
