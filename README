@@ -1,12 +1,7 @@
-WaveGain v1.5.3
+WaveGain v1.5.4
 ===============================================================================
 
 Japanese documentation / 日本語版: [README.ja.md](README.ja.md)
-
-Latest release: [v1.5.3](https://github.com/demupe/wavegain/releases/tag/v1.5.3)
-(October 19, 2026). This README describes the current source tree.
-5.1/7.1 surround support is unreleased and requires building this development
-source; the v1.5.3 release supports mono/stereo only.
 
 WaveGain measures and adjusts the loudness of mono, stereo and supported surround audio files.
 It supports ReplayGain and BS.1770 integrated loudness (LUFS), with optional
@@ -19,7 +14,7 @@ Applying gain and undoing it are lossy.
 Features
 -------------------------------------------------------------------------------
 * Track or album loudness adjustment using ReplayGain or integrated LUFS.
-* Unreleased: 5.1/7.1 surround normalization with explicit layouts in LUFS mode.
+* 5.1/7.1 surround normalization with explicit speaker layouts in LUFS mode.
 * True-peak measurement and an explicit output ceiling.
 * Separate output files, including recursive directory processing.
 * WAV, RF64 and Sony Wave64; limited 16-bit AIFF/AIFC support.
@@ -29,14 +24,13 @@ Features
 
 Supported formats and large files
 -------------------------------------------------------------------------------
-The v1.5.3 release supports mono/stereo integer PCM and floating-point
-audio in WAV and Wave64 at
+WAV and Wave64 support mono/stereo integer PCM and floating-point audio at
 8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000, 64000, 88200,
 96000, 176400 and 192000 Hz. Compressed codecs are unsupported. 16-bit integer
 AIFF/AIFC input is also supported. -b selects the output sample format;
 -b 6 selects 16-bit AIFF, which retains its 32-bit container-size limit.
-The development source additionally supports the 5.1/7.1 layouts described
-under Surround audio (unreleased), with --lufs or --target-lufs.
+5.1/7.1 layouts are also supported with --lufs or --target-lufs; see
+Surround audio for supported channel masks and option restrictions.
 
 WAV / RF64:
 * POSIX builds use 64-bit file offsets and process files larger than 4 GiB.
@@ -137,7 +131,7 @@ ReplayGain algorithm and BS.1770 integrated loudness measured in LUFS.
 | Frequency weighting | Legacy equal-loudness approximation (Yule/Butterworth filters) | BS.1770 K-weighting |
 | Time measurement | 50 ms energy blocks; uses the 95th percentile, emphasizing louder passages | Integrated energy of overlapping 400 ms blocks; gates out silence and sufficiently quiet passages |
 | Target | Legacy ReplayGain calibration; -g adds a manual dB adjustment | -23 LUFS by default; --target-lufs sets another target |
-| Channels | Mono/stereo | Mono/stereo; supported 5.1/7.1 layouts in development source (unreleased) |
+| Channels | Mono/stereo | Mono/stereo and supported 5.1/7.1 layouts |
 
 A LUFS reading describes loudness; the resulting gain is a change in dB.
 For example, -18 LUFS measured against a -23 LUFS target calls for -5 dB
@@ -209,7 +203,7 @@ path. No installed libebur128 or .NET runtime is needed. Implementation,
 licenses and precision contracts are documented in
 doc/design/loudness-implementation.md.
 
-Surround audio (unreleased)
+Surround audio
 -------------------------------------------------------------------------------
 5.1 and 7.1 WAV, RF64 and Wave64 require --lufs or --target-lufs. Without
 one of these options the file is warned and refused (exit status 1), and no
@@ -334,7 +328,7 @@ and HTML manual. Do not edit the option reference below directly.
 
 Behavior changes
 -------------------------------------------------------------------------------
-Unreleased:
+Version 1.5.4:
 * Add explicit-layout 5.1/7.1 LUFS processing, all-channel peak protection,
   dither, format conversion and undo. Surround without LUFS is refused with
   a warning; legacy ReplayGain remains limited to mono/stereo.
@@ -497,7 +491,7 @@ Documentation (from wavegain --help)
 -------------------------------------------------------------------------------
 Generated from doc/help.json; run make docs after editing.
 
-WaveGain v1.5.3
+WaveGain v1.5.4
  Usage: wavegain [options] input.wav [...] (also .w64)
 
  OPTIONS
