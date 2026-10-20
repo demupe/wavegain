@@ -4,6 +4,7 @@
 #ifndef WG_PEAK_REFINE_H
 #define WG_PEAK_REFINE_H
 #include <float.h>
+#include "channels.h"
 
 #define WG_REFINE_RADIUS 128
 #define WG_REFINE_LENGTH (2 * WG_REFINE_RADIUS + 1)
@@ -11,7 +12,7 @@ typedef struct {
 	double coefficient[4][WG_REFINE_LENGTH][4];
 	double tail[4][WG_REFINE_LENGTH + 1], norm;
 	unsigned int index[WG_REFINE_LENGTH];
-	double history[2][2 * WG_REFINE_LENGTH], peak;
+	double history[WG_MAX_CHANNELS][2 * WG_REFINE_LENGTH], peak;
 	unsigned int cursor;
 } wg_peak_refiner;
 

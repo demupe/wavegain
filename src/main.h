@@ -22,9 +22,11 @@ typedef struct file_list
     const char* filename;
     double track_gain;
     double track_peak;
-    double dc_offset[2];
-    double offset[2];
-    double minimum[2], maximum[2];
+    double dc_offset[WG_MAX_CHANNELS];
+    double offset[WG_MAX_CHANNELS];
+    double minimum[WG_MAX_CHANNELS], maximum[WG_MAX_CHANNELS];
+    double album_dc_offset[WG_MAX_CHANNELS];
+    unsigned int channel_mask;
     double raw_gain, duration;
     unsigned long long frames;
     int channels, apply, samplesize, format;

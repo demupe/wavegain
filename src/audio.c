@@ -542,10 +542,17 @@ int setup_wav(FILE *in, wavegain_opt *opt, const unsigned char *buf,
 	format.samplerate = READ_U32_LE(buf+4);
 	format.align = READ_U16_LE(buf+12);
 	format.samplesize = READ_U16_LE(buf+14);
-	if (format.channels < 1 || format.channels > 2 || !format.samplerate) return 0;
+	if (format.channels < 1 || format.channels > WG_MAX_CHANNELS || !format.samplerate) return 0;
 	if (format.format == WAVE_FORMAT_EXTENSIBLE &&
 	    (fmt_size < 40 || READ_U16_LE(buf + 16) < 22 ||
 	     READ_U16_LE(buf + 18) > format.samplesize)) return 0;
+	opt->channel_mask = 0;
+	if (format.channels > 2 && (format.format != WAVE_FORMAT_EXTENSIBLE ||
+	    !wg_surround_layout(format.channels, READ_U32_LE(buf + 20)))) {
+		fprintf(stderr, "Error: surround input requires an explicit supported 5.1 or 7.1 WAVE channel mask.\n");
+		return 0;
+	}
+	if (format.channels > 2) opt->channel_mask = READ_U32_LE(buf + 20);
 	if(format.format == WAVE_FORMAT_PCM) {
 		samplesize = format.samplesize/8;
 		opt->read_samples = wav_read;
@@ -560,7 +567,7 @@ int setup_wav(FILE *in, wavegain_opt *opt, const unsigned char *buf,
 	}
 	else if (format.format == WAVE_FORMAT_EXTENSIBLE) {
 		format.channel_mask = READ_U32_LE(buf+20);
-		if (format.channel_mask > 3 &&
+		if (format.channels <= 2 && format.channel_mask > 3 &&
 		    !(format.channels == 1 && format.channel_mask == 4)) {
 			fprintf(stderr, "ERROR: Wav file is unsupported type (must be standard 1 or 2 channel PCM\n"
 					" or type 3 floating point PCM)(2)\n");
@@ -1094,7 +1101,14 @@ int write_wav_header(audio_file *aufile, wavegain_opt *opt, Int64_t file_size)
 	bytes = aufile->samples * (opt->samplesize / 8);
 	put_le(opt->header + 4, file_size > UINT32_MAX ? UINT32_MAX : (Uint64_t)file_size, 4);
 	p = opt->header + fmt + 8;
-	put_le(p, aufile->outputFormat == WAV_FMT_FLOAT ? WAVE_FORMAT_IEEE_FLOAT : WAVE_FORMAT_PCM, 2);
+	if (opt->channels > 2) {
+		if (READ_U32_LE(opt->header + fmt + 4) < 40) return 0;
+		put_le(p, WAVE_FORMAT_EXTENSIBLE, 2);
+		put_le(p + 16, 22, 2);
+		put_le(p + 18, opt->samplesize, 2);
+		put_le(p + 20, opt->channel_mask, 4);
+		memcpy(p + 24, aufile->outputFormat == WAV_FMT_FLOAT ? ieee_float_guid : pcm_guid, 16);
+	} else put_le(p, aufile->outputFormat == WAV_FMT_FLOAT ? WAVE_FORMAT_IEEE_FLOAT : WAVE_FORMAT_PCM, 2);
 	put_le(p + 2, opt->channels, 2);
 	put_le(p + 4, opt->rate, 4);
 	put_le(p + 8, (Uint64_t)opt->rate * opt->channels * (opt->samplesize / 8), 4);
