@@ -26,7 +26,7 @@
     },
     {
       "condition": null,
-      "text": " INPUT FILES\n  WaveGain input files may be 8, 16, 24 or 32 bit integer, or floating point\n  WAV or Sony Wave64 files with 1 or 2 channels and a sample rate of 192000Hz, 176400Hz, 96000Hz, 88200Hz,\n  64000Hz, 48000Hz, 44100Hz, 32000Hz, 24000Hz, 22050Hz, 16000Hz, 12000Hz,\n  11025Hz or 8000Hz.\n  16 bit integer 'aiff' files are also supported.\n  Use '-' for stdin (calculation only). Wave64 input remains Wave64\n  when gain or a PCM format change is applied. RF64 input is supported.\n  WAV files with 0xFFFFFFFF sizes (written to a pipe, or over 4 GiB) are\n  read to the end of the file.\n"
+      "text": " INPUT FILES\n  WaveGain input files may be 8, 16, 24 or 32 bit integer, or floating point\n  WAV or Sony Wave64 files with 1 or 2 channels and a sample rate of 192000Hz, 176400Hz, 96000Hz, 88200Hz,\n  64000Hz, 48000Hz, 44100Hz, 32000Hz, 24000Hz, 22050Hz, 16000Hz, 12000Hz,\n  11025Hz or 8000Hz.\n  With --lufs (or --target-lufs), 5.1 and 7.1 WAV/RF64/Wave64 are also\n  supported. They require WAVEFORMATEXTENSIBLE masks 0x3f or 0x60f (5.1),\n  or 0x63f (7.1). Other/unknown surround layouts are rejected.\n  Without LUFS, surround input is warned and refused, except --undo-gain.\n  Surround cannot use --limiter or AIFF output. LFE is excluded from LUFS,\n  but receives the common gain and is included in sample/true-peak protection.\n  No LFE boost, crossover or bass management is applied.\n  16 bit integer 'aiff' files are also supported.\n  Use '-' for stdin (calculation only). Wave64 input remains Wave64\n  when gain or a PCM format change is applied. RF64 input is supported.\n  WAV files with 0xFFFFFFFF sizes (written to a pipe, or over 4 GiB) are\n  read to the end of the file.\n"
     },
     {
       "condition": "ENABLE_RECURSIVE",
@@ -45,5 +45,5 @@
       "text": "Copyright (c) 2002-2010 John Edwards <john.edwards33@ntlworld.com>\nAdditional code by Magnus Holmgren, Gian-Carlo Pascutto, and Tycho\nDocumentation originally by Rodrigo Silva.\n"
     }
   ],
-  "manual_date": "October 16, 2026"
+  "manual_date": "October 20, 2026"
 }

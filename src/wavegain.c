@@ -203,7 +203,7 @@ int measure_file(FILE_LIST *file, const double *dc, const SETTINGS *settings)
 {
 	wavegain_opt opt = {0};
 	FILE *in = NULL;
-	double *pcm[2] = {NULL, NULL};
+	double *pcm[WG_MAX_CHANNELS] = {0};
 	unsigned long long frames = 0;
 	int ch, j, ok = 0;
 	long count;
@@ -214,8 +214,8 @@ int measure_file(FILE_LIST *file, const double *dc, const SETTINGS *settings)
 		goto measured;
 	}
 	in = fopen(file->filename, "rb");
-	if (!in || !open_audio_file(in, &opt) || opt.channels != file->channels || opt.rate != file->rate) goto done;
-	file->meter = wg_meter_create_mode((unsigned long)opt.rate, opt.channels, settings->lufs,
+	if (!in || !open_audio_file(in, &opt) || opt.channels != file->channels || opt.channel_mask != file->channel_mask || opt.rate != file->rate) goto done;
+	file->meter = wg_meter_create_layout((unsigned long)opt.rate, opt.channels, opt.channel_mask, settings->lufs,
 		settings->true_peak, settings->true_peak_mode);
 	if (!file->meter) goto done;
 	for (ch = 0; ch < opt.channels; ch++) if (!(pcm[ch] = malloc(BUFFER_LEN * sizeof(double)))) goto done;
@@ -233,6 +233,8 @@ measured:
 			fprintf(stderr, " LUFS measurement requires at least 400 ms: %s.\n", file->filename); goto done;
 		}
 		file->raw_gain = isfinite(file->loudness) ? settings->target_lufs - file->loudness : 0.;
+		if (file->channels > 2 && !isfinite(file->loudness))
+			fprintf(stderr, " Warning: no measurable main-channel loudness (LFE excluded); using manual gain only: %s.\n", file->filename);
 		fprintf(stderr, " Integrated loudness: %.2f LUFS | %s\n", file->loudness, file->filename);
 	}
 	if (settings->true_peak) {
@@ -244,7 +246,7 @@ measured:
 	}
 	ok = 1;
 done:
-	free(pcm[0]); free(pcm[1]);
+	for (ch = 0; ch < WG_MAX_CHANNELS; ch++) free(pcm[ch]);
 	if (opt.readdata) wav_close(opt.readdata);
 	if (in) fclose(in);
 	if (!ok) fprintf(stderr, " Error measuring loudness/true peak: %s.\n", file->filename);
@@ -262,7 +264,7 @@ void report_gain(FILE_LIST *file, const double *dc, SETTINGS *settings)
     file->track_peak = peak * scale; /* Predicted peak BEFORE the limiter. */
     if (!settings->no_offset && !settings->fast) {
         left = trunc(dc[0] * -32768.) + 0.;
-        right = file->channels == 2 ? trunc(dc[1] * -32768.) + 0. : 0.;
+        right = file->channels >= 2 ? trunc(dc[1] * -32768.) + 0. : 0.;
     }
     fprintf(stderr, " %+6.2lf dB | %6.0lf | %5.2lf | %8.0lf | %4.0f  |  %4.0f  | %s\n",
             file->track_gain, peak, scale, file->track_peak, left, right, file->filename);
@@ -271,6 +273,19 @@ void report_gain(FILE_LIST *file, const double *dc, SETTINGS *settings)
                   file->track_gain, peak, scale, file->track_peak, left, right, file->filename);
     if ((settings->lufs || settings->true_peak) && file->track_gain + .005 < file->raw_gain + settings->man_gain)
         fprintf(stderr, " Peak prevention reduced the requested gain by %.2f dB.\n", file->raw_gain + settings->man_gain - file->track_gain);
+    if (file->channels > 2) {
+        int ch;
+        fprintf(stderr, " DC offsets (PCM16 units):");
+        if (write_to_log) write_log(" DC offsets (PCM16 units):");
+        for (ch = 0; ch < file->channels; ch++) {
+            const char *name = wg_speaker_name(wg_channel_slot(file->channels, file->channel_mask, ch));
+            double value = settings->no_offset || settings->fast ? 0. : trunc(dc[ch] * -32768.) + 0.;
+            fprintf(stderr, " %s=%.0f", name, value);
+            if (write_to_log) write_log(" %s=%.0f", name, value);
+        }
+        fputc('\n', stderr);
+        if (write_to_log) write_log("\n");
+    }
     if (settings->scale && !settings->audiophile) fprintf(stdout, "%8.6lf", scale);
 }
 
@@ -280,13 +295,13 @@ int get_gain(const char *filename, double *track_peak, double *track_gain,
     wavegain_opt opt = {0};
     FILE *in = NULL;
     input_format *format = NULL;
-    double *buffer[2] = {NULL, NULL};
+    double *buffer[WG_MAX_CHANNELS] = {0};
     unsigned long long frames = 0;
     int ch, j, iteration = 0, sampled, ok = 0;
     Int64_t step;
     long count;
     int high_rate = 0;
-    double dc_compensation[2] = {0., 0.};
+    double dc_compensation[WG_MAX_CHANNELS] = {0.};
     WG_DECIMATOR decimator;
     opt.force = settings->force;
     opt.std_in = !strcmp(filename, "-");
@@ -296,14 +311,22 @@ int get_gain(const char *filename, double *track_peak, double *track_gain,
     if (opt.std_in) _setmode(_fileno(in), _O_BINARY);
 #endif
     format = open_audio_file(in, &opt);
-    if (!format || opt.channels < 1 || opt.channels > 2) {
+    if (!format || opt.channels < 1 || opt.channels > WG_MAX_CHANNELS) {
         fprintf(stderr, " Unsupported input file %s.\n", filename); goto done;
+    }
+    if (opt.channels > 2 && !settings->lufs) {
+        fprintf(stderr, " Warning: surround input requires --lufs (or --target-lufs); skipping %s.\n", filename);
+        goto done;
+    }
+    if (opt.channels > 2 && (settings->limiter || settings->format == WAV_FMT_AIFF)) {
+        fprintf(stderr, " Error: surround input cannot use --limiter or AIFF output: %s.\n", filename);
+        goto done;
     }
     if (opt.gain_chunk && !settings->force) {
         fprintf(stderr, " Skipping File %s, it has already been processed.\n", filename); ok = 2; goto done;
     }
     high_rate = opt.rate == 176400 || opt.rate == 192000;
-    if (high_rate) wg_decimator_init(&decimator, opt.channels);
+    if (high_rate && !settings->lufs) wg_decimator_init(&decimator, opt.channels);
     if (!settings->lufs && (settings->first_file || !settings->audiophile ? InitGainAnalysis(high_rate ? opt.rate / 2 : opt.rate) :
          ResetSampleFrequency(high_rate ? opt.rate / 2 : opt.rate)) != INIT_GAIN_ANALYSIS_OK) {
         fprintf(stderr, " Error Initializing Gain Analysis (non-standard samplerate?)\n"); goto done;
@@ -322,6 +345,7 @@ int get_gain(const char *filename, double *track_peak, double *track_gain,
               opt.total_samples_per_channel * (opt.samplesize / 8) * opt.channels > 8192000;
     step = (Int64_t)(opt.total_samples_per_channel * (opt.samplesize / 8) * opt.channels / 1200);
     info->channels = opt.channels;
+    info->channel_mask = opt.channel_mask;
     info->rate = opt.rate;
     info->samplesize = opt.samplesize;
     info->format = opt.format;
@@ -339,7 +363,7 @@ int get_gain(const char *filename, double *track_peak, double *track_gain,
         offset[ch] = dc_offset[ch] = 0.;
     }
     if (settings->no_offset && (settings->lufs || settings->true_peak)) {
-        info->meter = wg_meter_create_mode((unsigned long)opt.rate, opt.channels, settings->lufs,
+        info->meter = wg_meter_create_layout((unsigned long)opt.rate, opt.channels, opt.channel_mask, settings->lufs,
             settings->true_peak, settings->true_peak_mode);
         if (!info->meter) goto done;
     }
@@ -408,7 +432,7 @@ int get_gain(const char *filename, double *track_peak, double *track_gain,
     settings->first_file = 0;
     ok = 1;
 done:
-    free(buffer[0]); free(buffer[1]);
+    for (ch = 0; ch < WG_MAX_CHANNELS; ch++) free(buffer[ch]);
     if (opt.readdata) wav_close(opt.readdata);
     free(opt.header);
     if (in && in != stdin) fclose(in);
@@ -440,7 +464,7 @@ int write_gains(const char *filename, double radio_gain, double audiophile_gain,
 	wavegain_opt *wg_opts = calloc(1, sizeof(*wg_opts));
 	FILE         *infile = NULL;
 	audio_file   *aufile = NULL;
-	double       *pcm[2] = {NULL, NULL};
+	double       *pcm[WG_MAX_CHANNELS] = {0};
 	int          temp_created = 0, keep_temp = 0;
 	WG_METER     *output_meter = NULL;
 	const char   *destination = settings->current_output ? settings->current_output : filename;
@@ -489,7 +513,12 @@ int write_gains(const char *filename, double radio_gain, double audiophile_gain,
 		fprintf(stderr, " Unrecognized file format for %s.\n", filename);
 		goto exit;
 	}
-	if (wg_opts->channels < 1 || wg_opts->channels > 2) goto exit;
+	if (wg_opts->channels < 1 || wg_opts->channels > WG_MAX_CHANNELS) goto exit;
+	if (wg_opts->channels > 2 && ((!settings->lufs && !settings->undo) ||
+	    settings->limiter || settings->format == WAV_FMT_AIFF)) {
+		fprintf(stderr, " Error: surround processing requires --lufs (except undo), and cannot use --limiter or AIFF output.\n");
+		goto exit;
+	}
 	if (wg_opts->undo && !wg_opts->gain_chunk) {
 		fprintf(stderr, " Skipping file: %s - 'gain' chunk not found.\n", filename);
 		if (write_to_log) write_log(" Skipping file: %s - 'gain' chunk not found.\n", filename);
@@ -601,7 +630,7 @@ int write_gains(const char *filename, double radio_gain, double audiophile_gain,
 			Init_Rate_Dither(wg_opts->rate, settings->shapingtype);
 		}
 		if (settings->true_peak) {
-			output_meter = wg_meter_create_mode((unsigned long)wg_opts->rate, wg_opts->channels,
+			output_meter = wg_meter_create_layout((unsigned long)wg_opts->rate, wg_opts->channels, wg_opts->channel_mask,
 				0, 1, settings->true_peak_mode);
 			if (!output_meter) goto exit;
 		}
@@ -838,7 +867,7 @@ conversion_done:
 exit:
 	wg_meter_free(output_meter);
 	free(sample_buffer);
-	for (i = 0; i < 2; i++) free(pcm[i]);
+	for (i = 0; i < WG_MAX_CHANNELS; i++) free(pcm[i]);
 	if (wg_opts) {
 		if (wg_opts->readdata) wav_close(wg_opts->readdata);
 		free(wg_opts->header);

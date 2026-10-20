@@ -190,14 +190,14 @@ Init_Dither ( int bits, int shapingtype )
 
 /* Optional first-order error feedback. The pole-free noise transfer function
  * 1-a*z^-1 keeps the feedback bounded; a follows a physical frequency knee. */
-static double rate_feedback, rate_error[2];
+static double rate_feedback, rate_error[WG_MAX_CHANNELS];
 void Init_Rate_Dither(long rate, int shapingtype)
 {
 	static const double knee[] = {0., 10000., 6000., 3000.};
 	if (shapingtype < 0) shapingtype = 0;
 	if (shapingtype > 3) shapingtype = 3;
 	rate_feedback = shapingtype ? exp(-6.2831853071795864769 * knee[shapingtype] / rate) : 0.;
-	rate_error[0] = rate_error[1] = 0.;
+	memset(rate_error, 0, sizeof(rate_error));
 }
 
 Int64_t Rate_Dither(double sum, int channel, int bits)

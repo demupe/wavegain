@@ -1,11 +1,11 @@
 <!doctype html>
 <html lang="en"><meta charset="utf-8">
-<title>WaveGain 1.5.3</title>
+<title>WaveGain 1.5.4</title>
 <style>body{max-width:76em;margin:2em auto;padding:0 1em;font:16px system-ui}pre{white-space:pre-wrap}</style>
-<h1>WaveGain 1.5.3</h1>
+<h1>WaveGain 1.5.4</h1>
 <p>ReplayGain adjusts the audio samples. Applying gain and undoing it are lossy.</p>
 <p>Generated from doc/help.json. <a href="legacy-notes.txt">Historical manual notes</a>.</p>
-<pre>WaveGain v1.5.3
+<pre>WaveGain v1.5.4
  Usage: wavegain [options] input.wav [...] (also .w64)
 
  OPTIONS
@@ -126,6 +126,13 @@
   WAV or Sony Wave64 files with 1 or 2 channels and a sample rate of 192000Hz, 176400Hz, 96000Hz, 88200Hz,
   64000Hz, 48000Hz, 44100Hz, 32000Hz, 24000Hz, 22050Hz, 16000Hz, 12000Hz,
   11025Hz or 8000Hz.
+  With --lufs (or --target-lufs), 5.1 and 7.1 WAV/RF64/Wave64 are also
+  supported. They require WAVEFORMATEXTENSIBLE masks 0x3f or 0x60f (5.1),
+  or 0x63f (7.1). Other/unknown surround layouts are rejected.
+  Without LUFS, surround input is warned and refused, except --undo-gain.
+  Surround cannot use --limiter or AIFF output. LFE is excluded from LUFS,
+  but receives the common gain and is included in sample/true-peak protection.
+  No LFE boost, crossover or bass management is applied.
   16 bit integer &#x27;aiff&#x27; files are also supported.
   Use &#x27;-&#x27; for stdin (calculation only). Wave64 input remains Wave64
   when gain or a PCM format change is applied. RF64 input is supported.
