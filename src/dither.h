@@ -12,6 +12,7 @@
 #define __RAND_T_H
 
 #include "misc.h"
+#include "channels.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -22,9 +23,9 @@ typedef struct {
 	Uint64_t      Mask;
 	double        Add;
 	float         Dither;
-	float         ErrorHistory     [2] [16];       // max. 2 channels, 16th order Noise shaping
-	float         DitherHistory    [2] [16];
-	double        LastRandomNumber [2];
+	float         ErrorHistory     [WG_MAX_CHANNELS] [16];       // Per-channel 16th order noise shaping
+	float         DitherHistory    [WG_MAX_CHANNELS] [16];
+	double        LastRandomNumber [WG_MAX_CHANNELS];
 } dither_t;
 
 extern dither_t            Dither;

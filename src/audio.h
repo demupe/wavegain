@@ -31,6 +31,7 @@ extern "C" {
 
 #include <stdio.h>
 #include "misc.h"
+#include "channels.h"
 
 /* In WIN32, the following bitmap can be found in sdk\inc\ksmedia.h and sdk\inc\mmreg.h: */
 
@@ -63,6 +64,7 @@ typedef struct
 
 	Uint64_t total_samples_per_channel;
 	int channels;
+	unsigned int channel_mask;
 	long rate;
 	int samplesize;
 	int endianness;

@@ -454,9 +454,9 @@ int process_files(FILE_LIST* file_list, SETTINGS* settings, const char* dir WG_U
 	int failed = 0;
 	double     audiophile_gain = 0.,
 	           scale = 1.,
-	           album_dc_offset[2] = {0., 0.},
-	           album_channel_seconds[2] = {0., 0.},
-	           album_dc_compensation[2] = {0., 0.};
+	           album_dc_offset[WG_SPEAKER_SLOTS] = {0.},
+	           album_channel_seconds[WG_SPEAKER_SLOTS] = {0.},
+	           album_dc_compensation[WG_SPEAKER_SLOTS] = {0.};
 
 	settings->album_peak = NO_PEAK;
 
@@ -504,26 +504,36 @@ int process_files(FILE_LIST* file_list, SETTINGS* settings, const char* dir WG_U
 			{
 				int ch;
 				for (ch = 0; ch < file->channels; ch++) {
-					volatile double part = file->offset[ch] / file->rate - album_dc_compensation[ch];
-					volatile double next = album_dc_offset[ch] + part;
-					album_dc_compensation[ch] = (next - album_dc_offset[ch]) - part;
-					album_dc_offset[ch] = next;
-					album_channel_seconds[ch] += file->duration;
+					unsigned int slot = wg_channel_slot(file->channels, file->channel_mask, ch);
+					volatile double part = file->offset[ch] / file->rate - album_dc_compensation[slot];
+					volatile double next = album_dc_offset[slot] + part;
+					album_dc_compensation[slot] = (next - album_dc_offset[slot]) - part;
+					album_dc_offset[slot] = next;
+					album_channel_seconds[slot] += file->duration;
 				}
 			}
 		}
 
         if (settings->first_file) return failed ? -1 : 0;
-        /* A mono file contributes no samples to the right-channel mean. */
-        if (album_channel_seconds[0] > 0.)
-            album_dc_offset[0] /= album_channel_seconds[0];
-        if (album_channel_seconds[1] > 0.)
-            album_dc_offset[1] /= album_channel_seconds[1];
+        /* Missing speaker positions contribute no duration to their DC mean. */
+        {
+            unsigned int slot;
+            for (slot = 0; slot < WG_SPEAKER_SLOTS; slot++)
+                if (album_channel_seconds[slot] > 0.)
+                    album_dc_offset[slot] /= album_channel_seconds[slot];
+            for (file = file_list; file; file = file->next_file) {
+                int ch;
+                if (!file->filename) continue;
+                for (ch = 0; ch < file->channels; ch++)
+                    file->album_dc_offset[ch] = album_dc_offset[
+                        wg_channel_slot(file->channels, file->channel_mask, ch)];
+            }
+        }
         settings->album_peak = 0.;
         for (file = file_list; file; file = file->next_file) {
             const double *dc;
             if (!file->filename) continue;
-            dc = settings->adc ? album_dc_offset : file->dc_offset;
+            dc = settings->adc ? file->album_dc_offset : file->dc_offset;
             if ((settings->lufs || settings->true_peak) && !measure_file(file, dc, settings)) {
                 /* Do not publish an album whose measurements are incomplete. */
                 return -1;
@@ -579,10 +589,14 @@ int process_files(FILE_LIST* file_list, SETTINGS* settings, const char* dir WG_U
                 double gain;
                 int correction;
                 if (!file->filename) continue;
-                dc = settings->adc ? album_dc_offset : file->dc_offset;
+                dc = settings->adc ? file->album_dc_offset : file->dc_offset;
                 gain = settings->audiophile ? audiophile_gain : file->track_gain;
-                correction = !settings->no_offset &&
-                    (dc[0] != 0. || (file->channels == 2 && dc[1] != 0.));
+                {
+                    int ch;
+                    correction = 0;
+                    for (ch = 0; !settings->no_offset && ch < file->channels; ch++)
+                        if (dc[ch] != 0.) correction = 1;
+                }
                 file->apply = file->output || settings->true_peak || settings->lufs || settings->need_to_process || settings->force || settings->limiter ||
                               gain != 0. || correction;
                 if (file->apply) settings->progress_total += file->duration;
@@ -595,7 +609,7 @@ int process_files(FILE_LIST* file_list, SETTINGS* settings, const char* dir WG_U
                 }
                 settings->current_output = file->output;
                 if (!write_gains(file->filename, file->track_gain, audiophile_gain, file->track_peak,
-                                 file->dc_offset, album_dc_offset, settings)) {
+                                 file->dc_offset, file->album_dc_offset, settings)) {
                     fprintf(stderr, " Error processing GAIN for file - %s\n", file->filename);
                     failed = 1;
                 }

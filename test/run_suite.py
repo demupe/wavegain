@@ -11,6 +11,7 @@ from test_support import ROOT, SRC, DEFAULT_BINARY, resolve_binary
 
 # Each test's included .c files are intentionally excluded from its link list.
 C_TESTS = {
+    'surround_dsp': ['test/surround_dsp.c', 'loudness.c'],
     'fundamental_dsp': ['test/fundamental_dsp.c'],
     'fractional_rates': ['test/fractional_rates.c'],
     'input_index': ['test/input_index.c',
@@ -29,11 +30,11 @@ C_TESTS = {
     'command_regressions': ['test/command_regressions.c',
                             *[p.name for p in sorted(SRC.glob('*.c')) if p.name != 'main.c']],
 }
-CLI_TESTS = ('todo_regressions', 'review_regressions', 'feature_regressions',
+CLI_TESTS = ('surround_regressions', 'todo_regressions', 'review_regressions', 'feature_regressions',
              'followup_regressions', 'edge_regressions', 'precision_regressions',
              'windows_paths', 'windows_files')
 CORE = ('docs', 'support_contracts', 'filters', 'loudness', *C_TESTS, *CLI_TESTS)
-INTEROP = ('wave64_interop', 'filter_interop', 'riff_interop', 'feature_interop')
+INTEROP = ('surround_interop', 'wave64_interop', 'filter_interop', 'riff_interop', 'feature_interop')
 WINDOWS_ONLY = {'windows_errors', 'command_regressions', 'windows_paths', 'windows_files'}
 
 
@@ -99,7 +100,7 @@ def main():
                         run([*shlex.split(args.cc), *shlex.split(args.cflags), '-UNDEBUG',
                              *flags, '-o', binary, *sources, *shlex.split(args.ldflags)])
                         run([binary])
-                if name == 'fractional_rates':
+                if name in ('fractional_rates', 'surround_dsp'):
                     run([*shlex.split(args.cc), *shlex.split(args.cflags), '-UNDEBUG',
                          '-DWG_EBUR_REFERENCE', '-o', binary, *sources, *shlex.split(args.ldflags)])
                     run([binary])

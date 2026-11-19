@@ -14,6 +14,29 @@ notice are retained under `vendor/libebur128/`.
 Its notice is `vendor/libebur128/R128Net-LICENSE.txt`. No system libebur128
 or .NET runtime is required.
 
+## Surround contract
+
+`src/channels.h` defines the supported WAVE speaker masks: 5.1 back/side
+(0x3f/0x60f) and 7.1 side+back (0x63f). Unknown layouts are refused before
+analysis or output. Surround requires explicit LUFS selection, except undo;
+legacy ReplayGain, AIFF output and the independent tanh limiter are excluded.
+
+The adapter sets every libebur128 channel explicitly: front L/R/C weight
+1.00, 5.1 surrounds and 7.1 sides 1.41, 7.1 backs 1.00, LFE unused for
+loudness. These are energy weights (ITU-R BS.1770-5 Annex 3, Table 5;
+BS.2217-2 channel-gain compliance cases). Peak measurement and output gain
+still include LFE. No playback LFE calibration or bass management is applied.
+PCM, dither and extended-peak histories have independent state for up to
+8 channels. Album DC means use speaker bits and are mapped to each file's
+packed channel order before measurement and application. Mono/stereo keep
+the existing mono/left DC convention and byte-identical DSP paths.
+
+The new surround probes check normative weight ratios against mono,
+including scalar/reference builds. FFmpeg interoperability also compares
+independent per-channel mono energies with normative weights, so a different
+FFmpeg version's treatment of 7.1 back speakers cannot define the contract.
+Official conformance-signal validation remains an open item in TODO.
+
 ## Precision contracts
 
 - ReplayGain and LUFS remain separate modes. LUFS/true peak use source-rate

@@ -259,16 +259,27 @@ static int write_chunk(FILE *out, const unsigned char *guid,
 
 static int output_fmt(FILE *out, wavegain_opt *opt)
 {
-    unsigned char guid[16], fmt[16] = {0};
+    unsigned char guid[16], fmt[40] = {0};
     memcpy(guid, wave64, 16);
     memcpy(guid, "fmt ", 4);
-    put16(fmt, opt->format == WAV_FMT_FLOAT ? WAVE_FORMAT_IEEE_FLOAT : WAVE_FORMAT_PCM);
+    put16(fmt, opt->channels > 2 ? WAVE_FORMAT_EXTENSIBLE :
+        opt->format == WAV_FMT_FLOAT ? WAVE_FORMAT_IEEE_FLOAT : WAVE_FORMAT_PCM);
     put16(fmt + 2, opt->channels);
     put32(fmt + 4, (uint32_t)opt->rate);
     put32(fmt + 8, (uint32_t)(opt->rate * opt->channels * (opt->samplesize / 8)));
     put16(fmt + 12, opt->channels * (opt->samplesize / 8));
     put16(fmt + 14, opt->samplesize);
-    return write_chunk(out, guid, fmt, sizeof(fmt));
+    if (opt->channels > 2) {
+        static const unsigned char subtype[16] = {
+            1, 0, 0, 0, 0, 0, 0x10, 0, 0x80, 0, 0, 0xaa, 0, 0x38, 0x9b, 0x71
+        };
+        put16(fmt + 16, 22);
+        put16(fmt + 18, opt->samplesize);
+        put32(fmt + 20, opt->channel_mask);
+        memcpy(fmt + 24, subtype, 16);
+        fmt[24] = opt->format == WAV_FMT_FLOAT ? 3 : 1;
+    }
+    return write_chunk(out, guid, fmt, opt->channels > 2 ? 40 : 16);
 }
 
 /* Two passes allow exact headers on stdout and bounded-memory metadata copies. */
@@ -300,7 +311,7 @@ int w64_write_header(audio_file *out, wavegain_opt *opt)
         while (pos < (Uint64_t)opt->data_start - 24) {
             if (!read_chunk(opt->source, pos, opt->container_end, header, &size)) goto done;
             if (chunk_is(header, "fmt ")) {
-                if (!pass) header_size += 40;
+                if (!pass) header_size += opt->channels > 2 ? 64 : 40;
                 else if (!output_fmt(out->sndfile, opt)) goto done;
                 if (!skip64(opt->source, aligned64(size) - 24)) goto done;
             } else if (dropped_chunk(header)) {

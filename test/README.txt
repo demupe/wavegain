@@ -41,8 +41,12 @@ output and complete histories in default, SSE2-only and C-only builds.
 It also checks FIR backend selection, independent peak-amplitude accuracy,
 K-weighting, fractional timing and extended peak reconstruction.
 
-Core coverage (25 test groups on Windows)
+Core coverage (27 test groups on Windows)
 -----------------------------------------
+surround_dsp          BS.1770 5.1/7.1 channel weights, LFE exclusion and
+                      all-channel peak modes across irregular block boundaries.
+surround_regressions  LUFS requirement, layout preservation, WAV/RF64/Wave64,
+                      widths/float, LFE clipping, undo, dither and mixed album DC.
 fundamental_dsp       Independent K-weighting, fractional window timing,
                       extended reconstruction and conservative screening checks.
 fractional_rates      Arbitrary-rate history/peak capacities, all PCM input
@@ -115,8 +119,10 @@ Sanitizers and independent interoperability
     Native Windows UBSan plus float-cast-overflow, nonrecovering; uses O2 unless
     --optimized is also given. ASan is not implied by this switch.
   make check-interop
+    Includes surround_interop: FFmpeg speaker layouts, decoding, independent
+    per-channel LUFS energy and peak checks for 5.1/7.1 WAV and Wave64.
   python test/run_suite.py --suite interop --binary ./wavegain
-    Four FFmpeg/ffprobe groups: Wave64, filters, RIFF/RF64 and features.
+    Five FFmpeg/ffprobe groups: surround, Wave64, filters, RIFF/RF64 and features.
     Missing tools cause a clear failure before execution, not a claimed pass.
     Interoperability tests are optional and are not hidden inside make check.
 

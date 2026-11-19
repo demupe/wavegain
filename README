@@ -1,9 +1,9 @@
-WaveGain v1.5.3
+WaveGain v1.5.4
 ===============================================================================
 
 Japanese documentation / 日本語版: [README.ja.md](README.ja.md)
 
-WaveGain measures and adjusts the loudness of mono and stereo audio files.
+WaveGain measures and adjusts the loudness of mono, stereo and supported surround audio files.
 It supports ReplayGain and BS.1770 integrated loudness (LUFS), with optional
 true-peak protection. Gain is applied directly to the audio samples.
 
@@ -14,12 +14,57 @@ Applying gain and undoing it are lossy.
 Features
 -------------------------------------------------------------------------------
 * Track or album loudness adjustment using ReplayGain or integrated LUFS.
+* 5.1/7.1 surround normalization with explicit speaker layouts in LUFS mode.
 * True-peak measurement and an explicit output ceiling.
 * Separate output files, including recursive directory processing.
 * WAV, RF64 and Sony Wave64; limited 16-bit AIFF/AIFC support.
 * 8- to 32-bit integer PCM and floating-point audio, at 14 sample rates
   from 8 to 192 kHz.
 * Legacy dither and an optional sample-rate-dependent dither family.
+
+Supported formats and large files
+-------------------------------------------------------------------------------
+WAV and Wave64 support mono/stereo integer PCM and floating-point audio at
+8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000, 64000, 88200,
+96000, 176400 and 192000 Hz. Compressed codecs are unsupported. 16-bit integer
+AIFF/AIFC input is also supported. -b selects the output sample format;
+-b 6 selects 16-bit AIFF, which retains its 32-bit container-size limit.
+5.1/7.1 layouts are also supported with --lufs or --target-lufs; see
+Surround audio for supported channel masks and option restrictions.
+
+WAV / RF64:
+* POSIX builds use 64-bit file offsets and process files larger than 4 GiB.
+* WAV output larger than 4 GiB uses 0xFFFFFFFF RIFF/data sizes and emits a
+  warning. --rf64 reserves a JUNK chunk and converts it to ds64 only when
+  needed, so smaller output remains ordinary RIFF/WAV.
+* --rf64 requires seekable output and is ignored with --stdout. RF64 input
+  is supported and follows the same output-size rules when rewritten.
+* On seekable input, sentinel sizes or data extending past EOF are read to
+  the end of the file, provided it ends on a complete PCM frame. Incomplete
+  frames are refused, including after EOF recovery. Stdin remains strict.
+
+Sony Wave64:
+* Input is detected by its GUIDs. Wave64 remains Wave64 when applying gain
+  or changing PCM format, unless AIFF output is explicitly selected.
+* Container/chunk sizes and sample counts use 64-bit fields. A format chunk
+  must precede a single audio data chunk.
+* Unknown chunks before and after audio are preserved with bounded-memory
+  copying. 'fact' and 'gain' are rewritten before audio; stale 'levl' peak
+  summaries are dropped.
+* Seekable input with unfinalized or truncated sizes is accepted with a
+  warning if the recovered audio ends on a complete PCM frame. Incomplete
+  frames are refused. Stdin remains strict.
+* There is no WAV-to-Wave64 output option; use an external converter to
+  create the initial .w64 file.
+
+The optional 'gain' chunk stores the applied scale for --undo-gain. It is a
+WaveGain extension, not a player loudness tag. Wave64 uses the private GUID
+(e217d848-96be-4ac0-b56a-8b46289c71e0) with a little-endian IEEE double.
+On macOS, the WAV 'gain' scale is stored big-endian (an upstream choice), so
+WAV undo metadata is not interchangeable with other platforms.
+
+Use '-' for stdin in calculation mode. LUFS/true-peak stdin measurement also
+requires -p and finalized container sizes. Applying gain requires file input.
 
 Quick start
 -------------------------------------------------------------------------------
@@ -74,6 +119,44 @@ filters and audio energy rather than normalizing only the highest sample.
 Track mode adjusts each file independently. Album mode applies one gain to
 preserve relative loudness between tracks.
 
+ReplayGain and LUFS: what differs?
+
+Both help match perceived loudness between recordings. ReplayGain is a
+loudness-normalization system; LUFS (Loudness Units relative to Full Scale)
+is a measurement unit. In WaveGain, the choice is between the legacy
+ReplayGain algorithm and BS.1770 integrated loudness measured in LUFS.
+
+| In WaveGain | ReplayGain (default) | LUFS mode (--lufs) |
+| --- | --- | --- |
+| Frequency weighting | Legacy equal-loudness approximation (Yule/Butterworth filters) | BS.1770 K-weighting |
+| Time measurement | 50 ms energy blocks; uses the 95th percentile, emphasizing louder passages | Integrated energy of overlapping 400 ms blocks; gates out silence and sufficiently quiet passages |
+| Target | Legacy ReplayGain calibration; -g adds a manual dB adjustment | -23 LUFS by default; --target-lufs sets another target |
+| Channels | Mono/stereo | Mono/stereo and supported 5.1/7.1 layouts |
+
+A LUFS reading describes loudness; the resulting gain is a change in dB.
+For example, -18 LUFS measured against a -23 LUFS target calls for -5 dB
+of gain before manual adjustment and peak protection. ReplayGain directly
+reports the gain relative to its own reference. Different weighting,
+statistics and targets mean that the two modes can produce different gains
+for the same recording; there is no fixed offset that converts every legacy
+ReplayGain result into integrated LUFS.
+
+Use the default to retain WaveGain's established ReplayGain behavior. Use
+LUFS for an explicit loudness target, comparison with BS.1770 meters, or
+surround input. Both support track and album gain. Normalization applies a
+constant gain per track or album; it does not itself compress the changing
+volume within a recording. True peak is a separate peak measurement, and
+--lufs alone does not enable --true-peak. When applying gain (-y), both modes change
+PCM directly; WaveGain does not write player ReplayGain tags.
+
+Some tools calculate ReplayGain tags using BS.1770 (often called ReplayGain
+2.0). The ReplayGain column above describes WaveGain's legacy mode, not all
+software that writes ReplayGain tags.
+
+Sources: [ReplayGain calculation](https://replaygain.hydrogenaudio.org/calculating_rg.html),
+[ITU-R BS.1770-5](https://www.itu.int/dms_pubrec/itu-r/rec/bs/R-REC-BS.1770-5-202311-I%21%21PDF-E.pdf),
+and [EBU R 128](https://tech.ebu.ch/docs/r/r128.pdf).
+
 --lufs selects BS.1770 integrated loudness with a default target of -23 LUFS.
 --target-lufs changes that target and also selects LUFS mode. Album LUFS uses
 a common gate over the tracks' block energies, rather than averaging their
@@ -120,47 +203,33 @@ path. No installed libebur128 or .NET runtime is needed. Implementation,
 licenses and precision contracts are documented in
 doc/design/loudness-implementation.md.
 
-Supported formats and large files
+Surround audio
 -------------------------------------------------------------------------------
-WAV and Wave64 support mono/stereo integer PCM and floating-point audio at
-8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000, 64000, 88200,
-96000, 176400 and 192000 Hz. Compressed codecs are unsupported. 16-bit integer
-AIFF/AIFC input is also supported. -b selects the output sample format;
--b 6 selects 16-bit AIFF, which retains its 32-bit container-size limit.
+5.1 and 7.1 WAV, RF64 and Wave64 require --lufs or --target-lufs. Without
+one of these options the file is warned and refused (exit status 1), and no
+output is written for it. --undo-gain is exempt because it needs no loudness
+analysis. Mono/stereo retain their default ReplayGain behavior.
 
-WAV / RF64:
-* POSIX builds use 64-bit file offsets and process files larger than 4 GiB.
-* WAV output larger than 4 GiB uses 0xFFFFFFFF RIFF/data sizes and emits a
-  warning. --rf64 reserves a JUNK chunk and converts it to ds64 only when
-  needed, so smaller output remains ordinary RIFF/WAV.
-* --rf64 requires seekable output and is ignored with --stdout. RF64 input
-  is supported and follows the same output-size rules when rewritten.
-* On seekable input, sentinel sizes or data extending past EOF are read to
-  the end of the file, provided it ends on a complete PCM frame. Incomplete
-  frames are refused, including after EOF recovery. Stdin remains strict.
+    ./wavegain -y --lufs --true-peak --output surround-out.wav surround.wav
 
-Sony Wave64:
-* Input is detected by its GUIDs. Wave64 remains Wave64 when applying gain
-  or changing PCM format, unless AIFF output is explicitly selected.
-* Container/chunk sizes and sample counts use 64-bit fields. A format chunk
-  must precede a single audio data chunk.
-* Unknown chunks before and after audio are preserved with bounded-memory
-  copying. 'fact' and 'gain' are rewritten before audio; stale 'levl' peak
-  summaries are dropped.
-* Seekable input with unfinalized or truncated sizes is accepted with a
-  warning if the recovered audio ends on a complete PCM frame. Incomplete
-  frames are refused. Stdin remains strict.
-* There is no WAV-to-Wave64 output option; use an external converter to
-  create the initial .w64 file.
+Supported WAVEFORMATEXTENSIBLE channel masks are 0x3f (5.1 back), 0x60f
+(5.1 side) and 0x63f (7.1 side+back). Mask bits define the on-disk order;
+outputs preserve both layout and order, including PCM width/float conversion.
+Unknown, absent or inconsistent surround layouts are rejected; multichannel
+AIFF/raw input, AIFF output and --limiter are outside this support contract.
 
-The optional 'gain' chunk stores the applied scale for --undo-gain. It is a
-WaveGain extension, not a player loudness tag. Wave64 uses the private GUID
-(e217d848-96be-4ac0-b56a-8b46289c71e0) with a little-endian IEEE double.
-On macOS, the WAV 'gain' scale is stored big-endian (an upstream choice), so
-WAV undo metadata is not interchangeable with other platforms.
+BS.1770 loudness excludes LFE. Front L/R/C have energy weight 1.00; 5.1
+surrounds and 7.1 sides use 1.41, while 7.1 backs use 1.00. The same chosen
+gain is applied to every channel including LFE. Sample-peak prevention and
+optional true-peak protection cover every channel, so LFE peaks can prevent
+reaching the target LUFS. LFE-only/below-gate files use manual gain only.
+No +10 dB LFE boost, crossover, downmix or bass management is performed.
+Album DC means are grouped by speaker position across mixed layouts; the
+historical mono/left convention remains for mono/stereo. Each surround file
+reports all channel DC corrections by speaker label.
 
-Use '-' for stdin in calculation mode. LUFS/true-peak stdin measurement also
-requires -p and finalized container sizes. Applying gain requires file input.
+References: ITU-R BS.1770-5 Annexes 1/3 (including Table 5), ITU-R
+BS.2217-2 channel-gain tests, and Microsoft's WAVEFORMATEXTENSIBLE contract.
 
 Build and install
 -------------------------------------------------------------------------------
@@ -259,6 +328,11 @@ and HTML manual. Do not edit the option reference below directly.
 
 Behavior changes
 -------------------------------------------------------------------------------
+Version 1.5.4:
+* Add explicit-layout 5.1/7.1 LUFS processing, all-channel peak protection,
+  dither, format conversion and undo. Surround without LUFS is refused with
+  a warning; legacy ReplayGain remains limited to mono/stereo.
+
 Version 1.5.3:
 * Input duplicate checks use invocation-wide path and file-ID hash indexes,
   avoiding quadratic lookup work across large recursive runs while retaining
@@ -417,7 +491,7 @@ Documentation (from wavegain --help)
 -------------------------------------------------------------------------------
 Generated from doc/help.json; run make docs after editing.
 
-WaveGain v1.5.3
+WaveGain v1.5.4
  Usage: wavegain [options] input.wav [...] (also .w64)
 
  OPTIONS
@@ -538,6 +612,13 @@ WaveGain v1.5.3
   WAV or Sony Wave64 files with 1 or 2 channels and a sample rate of 192000Hz, 176400Hz, 96000Hz, 88200Hz,
   64000Hz, 48000Hz, 44100Hz, 32000Hz, 24000Hz, 22050Hz, 16000Hz, 12000Hz,
   11025Hz or 8000Hz.
+  With --lufs (or --target-lufs), 5.1 and 7.1 WAV/RF64/Wave64 are also
+  supported. They require WAVEFORMATEXTENSIBLE masks 0x3f or 0x60f (5.1),
+  or 0x63f (7.1). Other/unknown surround layouts are rejected.
+  Without LUFS, surround input is warned and refused, except --undo-gain.
+  Surround cannot use --limiter or AIFF output. LFE is excluded from LUFS,
+  but receives the common gain and is included in sample/true-peak protection.
+  No LFE boost, crossover or bass management is applied.
   16 bit integer 'aiff' files are also supported.
   Use '-' for stdin (calculation only). Wave64 input remains Wave64
   when gain or a PCM format change is applied. RF64 input is supported.

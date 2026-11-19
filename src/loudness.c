@@ -65,9 +65,16 @@ WG_METER *wg_meter_create(unsigned long rate, unsigned int channels, int loudnes
 WG_METER *wg_meter_create_mode(unsigned long rate, unsigned int channels, int loudness, int peak,
 	WG_PEAK_MODE peak_mode)
 {
+	return wg_meter_create_layout(rate, channels, 0, loudness, peak, peak_mode);
+}
+
+WG_METER *wg_meter_create_layout(unsigned long rate, unsigned int channels, unsigned int mask,
+	int loudness, int peak, WG_PEAK_MODE peak_mode)
+{
 	WG_METER *m = calloc(1, sizeof(*m));
 	int mode = EBUR128_MODE_M;
-	if (!m || channels < 1 || channels > 2 ||
+	if (!m || channels < 1 || channels > WG_MAX_CHANNELS ||
+	    (channels > 2 && !wg_surround_layout(channels, mask)) ||
 	    (peak_mode != WG_PEAK_PRECISE && peak_mode != WG_PEAK_FAST &&
 	     peak_mode != WG_PEAK_EXTENDED)) { free(m); return NULL; }
 	if (loudness) mode |= EBUR128_MODE_I;
@@ -77,6 +84,23 @@ WG_METER *wg_meter_create_mode(unsigned long rate, unsigned int channels, int lo
 	m->has_peak = peak;
 	m->state = ebur128_init(channels, rate, mode);
 	if (!m->state) { free(m); return NULL; }
+	/* Explicit mapping is essential: the library defaults ignore channels 7/8.
+	 * A 5.1 back pair represents the BS.775 surrounds (+/-110 degrees),
+	 * whereas 7.1 back channels represent +/-135 degrees (unit weight). */
+	if (channels > 2) {
+		unsigned int ch;
+		for (ch = 0; ch < channels; ch++) {
+			unsigned int slot = wg_channel_slot(channels, mask, ch);
+			int role = slot == 0 ? EBUR128_LEFT : slot == 1 ? EBUR128_RIGHT :
+				slot == 2 ? EBUR128_CENTER : slot == 3 ? EBUR128_UNUSED :
+				slot == 4 ? (channels == 6 ? EBUR128_Mp110 : EBUR128_Mp135) :
+				slot == 5 ? (channels == 6 ? EBUR128_Mm110 : EBUR128_Mm135) :
+				slot == 9 ? EBUR128_Mp090 : EBUR128_Mm090;
+			if (ebur128_set_channel(m->state, ch, role) != EBUR128_SUCCESS) {
+				ebur128_destroy(&m->state); free(m); return NULL;
+			}
+		}
+	}
 	if (peak && !wg_meter_init_peak(m->state, peak_mode)) {
 		ebur128_destroy(&m->state); free(m); return NULL;
 	}
@@ -107,9 +131,10 @@ int wg_meter_add(WG_METER *m, double **pcm, size_t frames)
 			m->packed[2 * i + 1] = right[i];
 		}
 	} else {
-		for (i = 0; i < frames; i++) {
-			if (!isfinite(pcm[0][i])) return 0;
-			m->packed[i] = pcm[0][i];
+		unsigned int channel;
+		for (i = 0; i < frames; i++) for (channel = 0; channel < m->channels; channel++) {
+			if (!isfinite(pcm[channel][i])) return 0;
+			m->packed[i * m->channels + channel] = pcm[channel][i];
 		}
 	}
 	if (m->refiner) wg_peak_refiner_add(m->refiner, pcm, frames, m->channels, m->refiner->peak);
@@ -139,8 +164,9 @@ int wg_meter_finish(WG_METER *m, double *lufs, double *peak)
 	if (!m) return 0;
 	release_buffers = !m->finished;
 	if (!m->finished && m->refiner) {
-		double zero[64] = {0.}, *pcm[2] = {zero, zero};
+		double zero[64] = {0.}, *pcm[WG_MAX_CHANNELS];
 		unsigned int i;
+		for (i = 0; i < m->channels; i++) pcm[i] = zero;
 		for (i = 0; i < WG_REFINE_LENGTH; i += 64)
 			wg_peak_refiner_add(m->refiner, pcm,
 				WG_REFINE_LENGTH - i < 64 ? WG_REFINE_LENGTH - i : 64, m->channels, m->refiner->peak);
@@ -152,7 +178,7 @@ int wg_meter_finish(WG_METER *m, double *lufs, double *peak)
 		memset(m->state->d->resampler_buffer_input, 0, 64 * m->channels * sizeof(float));
 		ebur128_check_true_peak(m->state, 64);
 #else
-		double zeros[128] = {0};
+		double zeros[64 * WG_MAX_CHANNELS] = {0};
 		wg_fast_true_peak(m->state, zeros, 64);
 #endif
 		for (ch = 0; ch < m->channels; ch++)
